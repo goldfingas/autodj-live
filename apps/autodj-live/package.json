@@ -1,0 +1,19 @@
+{
+  "name": "@autodj/live",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "cargo test --workspace --manifest-path ../../Cargo.toml",
+    "check": "node --input-type=module -e \"import { spawnSync } from 'node:child_process'; const fail = (message) => { console.error(message); process.exit(1); }; const run = (command, args, missing) => { const result = spawnSync(command, args, { encoding: 'utf8' }); if (result.error || result.status !== 0) fail(missing); return (result.stdout || result.stderr).trim(); }; const runShim = (command, missing) => process.platform === 'win32' ? run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command + ' --version'], missing) : run(command, ['--version'], missing); const rustHelp = 'Rust 1.99.1 with the MSVC host is required. See Tauri Windows prerequisites: https://v2.tauri.app/start/prerequisites/#windows'; const rustc = run('rustc', ['--version'], rustHelp); if (!rustc.startsWith('rustc 1.99.1 ')) fail('Expected rustc 1.99.1, found: ' + rustc + '. ' + rustHelp); const cargo = run('cargo', ['--version'], rustHelp); if (!cargo.startsWith('cargo 1.99.1 ')) fail('Expected Cargo 1.99.1, found: ' + cargo + '. ' + rustHelp); const rustDetails = run('rustc', ['-vV'], rustHelp); const host = rustDetails.split(/\\r?\\n/).find((line) => line.startsWith('host: ')); if (host !== 'host: x86_64-pc-windows-msvc') fail('Expected Rust host x86_64-pc-windows-msvc, found: ' + (host || 'unknown') + '. ' + rustHelp); const node = process.versions.node; if (Number(node.split('.')[0]) !== 26) fail('Expected Node 26, found: ' + node); const npmHelp = 'Run npm ci --ignore-scripts from the repository root.'; const tauri = runShim('tauri', 'Tauri CLI 2.12.3 is missing. ' + npmHelp); if (!tauri.includes('2.12.3')) fail('Expected Tauri CLI 2.12.3, found: ' + tauri); const vite = runShim('vite', 'Vite 8.3.4 is missing. ' + npmHelp); if (!vite.includes('8.3.4')) fail('Expected Vite 8.3.4, found: ' + vite); console.log(rustc); console.log(cargo); console.log(host); console.log('node ' + node); console.log(tauri); console.log(vite);\""
+  },
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3",
+    "vite": "8.3.4"
+  }
+}

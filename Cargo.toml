@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/live-protocol",
+    "crates/live-engine",
+    "crates/live-supervisor",
+    "apps/autodj-live/src-tauri",
+]
+resolver = "2"
+
+[profile.release]
+panic = "abort"

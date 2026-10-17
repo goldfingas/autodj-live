@@ -4,6 +4,9 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "Development tooling for the AutoDJ web UI: vitest unit tests, ESLint, knip and the Playwright audits.  The server serves src/autodj/static as-is; nothing here is needed to run AutoDJ.",
+  "workspaces": [
+    "apps/autodj-live"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
@@ -12,7 +15,11 @@
     "audit:transitions": "node tests/playwright/transition_audit.mjs",
     "audit:health": "node tests/playwright/health_audit.mjs",
     "audit:visual": "node tests/playwright/visual_audit.mjs",
-    "audit:ci": "npm run audit:health && npm run audit:transitions && npm run audit:visual"
+    "audit:ci": "npm run audit:health && npm run audit:transitions && npm run audit:visual",
+    "live:dev": "npm run dev --workspace @autodj/live",
+    "live:build": "npm run build --workspace @autodj/live",
+    "live:test": "npm run test --workspace @autodj/live",
+    "live:check": "npm run check --workspace @autodj/live"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

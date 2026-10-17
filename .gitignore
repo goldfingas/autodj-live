@@ -3,6 +3,7 @@
 
 # Personal config (contains local paths) — use config.toml.example as the template
 config.toml
+!.cargo/config.toml
 # Per-machine overlay applied on top of config.toml (paths such as
 # music_dir and beets_db differ between hosts). Never shared between machines.
 # The .example variants ARE committed (templates); the deployed copies
@@ -65,6 +66,10 @@ Thumbs.db
 
 # Node dependencies (resolved versions live in committed package-lock.json)
 node_modules/
+apps/autodj-live/dist/
+
+# Rust build output
+target/
 # Audit reports may contain LAN paths / track metadata
 *_audit.json
 *_audit_report.json
