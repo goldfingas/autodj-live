@@ -94,6 +94,62 @@ async fn unauthenticated_or_incompatible_clients_receive_no_bytes() {
 }
 
 #[tokio::test]
+async fn hello_with_trailing_frame_bytes_receives_no_state() {
+    let engine = Engine::start(None).await;
+    for suffix in [0xc1, 0xc0] {
+        let mut socket = engine.socket().await;
+        let mut frame = Vec::new();
+        FrameCodec::write(&mut frame, &hello()).await.unwrap();
+        frame.push(suffix);
+        let payload_len = u32::try_from(frame.len() - 4).unwrap();
+        frame[..4].copy_from_slice(&payload_len.to_be_bytes());
+        socket.write_all(&frame).await.unwrap();
+        let mut response = [0; 1];
+        let read = timeout(LIMIT, socket.read(&mut response)).await.unwrap();
+        assert!(
+            matches!(read, Ok(0)) || read.is_err(),
+            "malformed hello returned response bytes"
+        );
+    }
+    let mut client = engine.client().await;
+    assert_eq!(health(&mut client).await.supervisor_generation, 0);
+    assert_eq!(
+        request(&mut client, EngineCommand::Shutdown).await,
+        EngineEvent::Stopping
+    );
+    engine.finish().await;
+}
+
+#[tokio::test]
+async fn command_with_trailing_frame_bytes_is_rejected_before_execution() {
+    let engine = Engine::start(None).await;
+    for suffix in [0xc1, 0xc0] {
+        let mut socket = engine.client().await;
+        let mut frame = Vec::new();
+        FrameCodec::write(&mut frame, &EngineCommand::Shutdown)
+            .await
+            .unwrap();
+        frame.push(suffix);
+        let payload_len = u32::try_from(frame.len() - 4).unwrap();
+        frame[..4].copy_from_slice(&payload_len.to_be_bytes());
+        socket.write_all(&frame).await.unwrap();
+        let mut response = [0; 1];
+        let read = timeout(LIMIT, socket.read(&mut response)).await.unwrap();
+        assert!(
+            matches!(read, Ok(0)) || read.is_err(),
+            "malformed command returned response bytes"
+        );
+    }
+    let mut client = engine.client().await;
+    assert!(health(&mut client).await.orphaned);
+    assert_eq!(
+        request(&mut client, EngineCommand::Shutdown).await,
+        EngineEvent::Stopping
+    );
+    engine.finish().await;
+}
+
+#[tokio::test]
 async fn startup_rejects_invalid_environment_without_echoing_input() {
     for (name, value) in [
         ("AUTODJ_LIVE_TOKEN", None),

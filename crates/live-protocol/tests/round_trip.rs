@@ -129,6 +129,40 @@ async fn typed_read_decodes_hello_and_preserves_the_frame_bound() {
 }
 
 #[tokio::test]
+async fn typed_read_rejects_trailing_bytes_in_hello_payload() {
+    let hello = ClientHello {
+        version: ProtocolVersion::CURRENT,
+        session_id: Uuid::nil(),
+        token: BearerToken::new([0x5a; 32]),
+    };
+    for suffix in [0xc1, 0xc0] {
+        let frame = frame_with_suffix(&hello, suffix).await;
+        assert!(
+            FrameCodec::read_typed::<_, ClientHello>(&mut frame.as_slice())
+                .await
+                .is_err()
+        );
+    }
+}
+
+#[tokio::test]
+async fn command_read_rejects_trailing_bytes_in_command_payload() {
+    for suffix in [0xc1, 0xc0] {
+        let frame = frame_with_suffix(&EngineCommand::Health, suffix).await;
+        assert!(FrameCodec::read(&mut frame.as_slice()).await.is_err());
+    }
+}
+
+async fn frame_with_suffix<T: Serialize>(message: &T, suffix: u8) -> Vec<u8> {
+    let mut frame = Vec::new();
+    FrameCodec::write(&mut frame, message).await.unwrap();
+    frame.push(suffix);
+    let payload_len = u32::try_from(frame.len() - 4).unwrap();
+    frame[..4].copy_from_slice(&payload_len.to_be_bytes());
+    frame
+}
+
+#[tokio::test]
 async fn write_accepts_one_mebibyte_and_rejects_one_byte_more() {
     // A MessagePack array32 contributes five bytes before these one-byte zero values.
     let exactly_one_mebibyte = vec![0_u8; 1_048_571];

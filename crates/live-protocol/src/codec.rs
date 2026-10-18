@@ -39,7 +39,7 @@ impl FrameCodec {
         Self::read_typed(reader).await
     }
 
-    /// Decode a typed message using the same allocation bound as command reads.
+    /// Decode exactly one typed message within the bounded frame payload.
     pub async fn read_typed<R, T>(reader: &mut R) -> Result<T, ProtocolError>
     where
         R: AsyncRead + Unpin,
@@ -54,7 +54,12 @@ impl FrameCodec {
 
         let mut payload = vec![0_u8; length as usize];
         reader.read_exact(&mut payload).await?;
-        Ok(rmp_serde::from_slice(&payload)?)
+        let mut decoder = rmp_serde::Deserializer::new(std::io::Cursor::new(&payload));
+        let message = T::deserialize(&mut decoder)?;
+        if decoder.position() != u64::from(length) {
+            return Err(decode::Error::Syntax("trailing bytes in frame payload".to_owned()).into());
+        }
+        Ok(message)
     }
 
     pub async fn write<W, T>(writer: &mut W, message: &T) -> Result<(), ProtocolError>
