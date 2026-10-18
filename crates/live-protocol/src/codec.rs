@@ -1,5 +1,5 @@
 use rmp_serde::{decode, encode};
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -35,6 +35,15 @@ impl FrameCodec {
     pub async fn read<R>(reader: &mut R) -> Result<EngineCommand, ProtocolError>
     where
         R: AsyncRead + Unpin,
+    {
+        Self::read_typed(reader).await
+    }
+
+    /// Decode a typed message using the same allocation bound as command reads.
+    pub async fn read_typed<R, T>(reader: &mut R) -> Result<T, ProtocolError>
+    where
+        R: AsyncRead + Unpin,
+        T: DeserializeOwned,
     {
         let mut header = [0_u8; 4];
         reader.read_exact(&mut header).await?;

@@ -105,6 +105,30 @@ async fn read_rejects_zero_and_oversized_lengths_before_reading_payload() {
 }
 
 #[tokio::test]
+async fn typed_read_decodes_hello_and_preserves_the_frame_bound() {
+    let hello = ClientHello {
+        version: ProtocolVersion::CURRENT,
+        session_id: Uuid::nil(),
+        token: BearerToken::new([0x5a; 32]),
+    };
+    let mut frame = Vec::new();
+    FrameCodec::write(&mut frame, &hello).await.unwrap();
+    assert_eq!(
+        FrameCodec::read_typed::<_, ClientHello>(&mut frame.as_slice())
+            .await
+            .unwrap(),
+        hello
+    );
+    for length in [0_u32, 1_048_577] {
+        let (mut writer, mut reader) = tokio::io::duplex(4);
+        writer.write_all(&length.to_be_bytes()).await.unwrap();
+        assert!(
+            matches!(FrameCodec::read_typed::<_, ClientHello>(&mut reader).await, Err(ProtocolError::InvalidFrameLength { length: actual }) if actual == length)
+        );
+    }
+}
+
+#[tokio::test]
 async fn write_accepts_one_mebibyte_and_rejects_one_byte_more() {
     // A MessagePack array32 contributes five bytes before these one-byte zero values.
     let exactly_one_mebibyte = vec![0_u8; 1_048_571];

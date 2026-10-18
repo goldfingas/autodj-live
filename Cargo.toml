@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/live-protocol",
+    "crates/live-engine",
 ]
 resolver = "2"
 
