@@ -29,6 +29,7 @@ def test_live_workspace_pins_toolchain_and_keeps_python_package_optional() -> No
     assert cargo["profile"]["release"]["panic"] == "abort"
     assert toolchain["toolchain"]["channel"] == "1.99.1"
     assert toolchain["toolchain"]["profile"] == "minimal"
+    assert set(toolchain["toolchain"]["components"]) == {"clippy", "rustfmt"}
     assert "x86_64-pc-windows-msvc" in toolchain["toolchain"]["targets"]
     assert cargo_config["build"]["target"] == "x86_64-pc-windows-msvc"
 

@@ -2,7 +2,7 @@
 
 mod codec;
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 pub use codec::{FrameCodec, ProtocolError};
 use serde::{Deserialize, Serialize};
@@ -62,7 +62,7 @@ pub struct ServerHello {
     pub lease_deadline_ns: u64,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct HealthSnapshot {
     pub engine_id: Uuid,
     pub state: String,
@@ -70,6 +70,8 @@ pub struct HealthSnapshot {
     pub supervisor_generation: u64,
     pub started_ns: u64,
     pub lease_deadline_ns: u64,
+    #[serde(default, flatten)]
+    pub extensions: BTreeMap<String, rmpv::Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -80,7 +82,7 @@ pub enum EngineCommand {
     Shutdown,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum EngineEvent {
     Attached,
     Health(HealthSnapshot),

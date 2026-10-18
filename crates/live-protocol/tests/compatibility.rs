@@ -1,5 +1,5 @@
 use autodj_live_protocol::{BearerToken, HealthSnapshot, ProtocolError, ProtocolVersion};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[test]
@@ -30,8 +30,8 @@ fn wrong_major_version_is_rejected() {
 }
 
 #[test]
-fn newer_minor_unknown_fields_do_not_hide_known_health_data() {
-    #[derive(Serialize)]
+fn newer_minor_unknown_fields_survive_health_decode_and_reencode() {
+    #[derive(Debug, Deserialize, PartialEq, Serialize)]
     struct NewerHealthSnapshot {
         engine_id: Uuid,
         state: String,
@@ -61,6 +61,21 @@ fn newer_minor_unknown_fields_do_not_hide_known_health_data() {
     assert_eq!(decoded.supervisor_generation, 8);
     assert_eq!(decoded.started_ns, 1_000);
     assert_eq!(decoded.lease_deadline_ns, 31_000_000_000);
+
+    let reencoded = rmp_serde::to_vec_named(&decoded).unwrap();
+    let recovered: NewerHealthSnapshot = rmp_serde::from_slice(&reencoded).unwrap();
+    assert_eq!(
+        recovered,
+        NewerHealthSnapshot {
+            engine_id,
+            state: "orphaned".to_owned(),
+            orphaned: true,
+            supervisor_generation: 8,
+            started_ns: 1_000,
+            lease_deadline_ns: 31_000_000_000,
+            future_counter: 99,
+        }
+    );
 }
 
 #[test]

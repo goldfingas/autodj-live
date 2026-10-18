@@ -16,6 +16,7 @@ fn health_snapshot() -> HealthSnapshot {
         supervisor_generation: 7,
         started_ns: 1_000,
         lease_deadline_ns: 31_000_000_000,
+        extensions: Default::default(),
     }
 }
 
@@ -90,7 +91,7 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
 
 #[tokio::test]
 async fn read_rejects_zero_and_oversized_lengths_before_reading_payload() {
-    for length in [0_u32, FrameCodec::MAX_FRAME_LEN as u32 + 1] {
+    for length in [0_u32, 1_048_577] {
         let (mut writer, mut reader) = tokio::io::duplex(4);
         writer.write_all(&length.to_be_bytes()).await.unwrap();
 
@@ -104,15 +105,22 @@ async fn read_rejects_zero_and_oversized_lengths_before_reading_payload() {
 }
 
 #[tokio::test]
-async fn write_rejects_payloads_over_one_mebibyte() {
-    let oversized = vec![0_u8; FrameCodec::MAX_FRAME_LEN + 1];
+async fn write_accepts_one_mebibyte_and_rejects_one_byte_more() {
+    // A MessagePack array32 contributes five bytes before these one-byte zero values.
+    let exactly_one_mebibyte = vec![0_u8; 1_048_571];
+    let mut frame = Vec::new();
+    FrameCodec::write(&mut frame, &exactly_one_mebibyte)
+        .await
+        .unwrap();
+    assert_eq!(frame.len() - 4, 1_048_576);
+
+    let oversized = vec![0_u8; 1_048_572];
     let error = FrameCodec::write(&mut Vec::new(), &oversized)
         .await
         .unwrap_err();
 
     assert!(matches!(
         error,
-        ProtocolError::FrameTooLarge { length }
-            if length > FrameCodec::MAX_FRAME_LEN
+        ProtocolError::FrameTooLarge { length: 1_048_577 }
     ));
 }
