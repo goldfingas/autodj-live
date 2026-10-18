@@ -72,3 +72,12 @@ def test_live_npm_scripts_are_namespaced() -> None:
     assert live_package["name"] == "@autodj/live"
     assert live_package["devDependencies"]["@tauri-apps/cli"] == "2.12.3"
     assert live_package["devDependencies"]["vite"] == "8.3.4"
+
+
+def test_live_node_policy_accepts_future_major_versions() -> None:
+    live_package = _json("apps/autodj-live/package.json")
+
+    assert live_package["engines"]["node"] == ">=26"
+    node_check = live_package["scripts"]["check"]
+    assert "Number(node.split('.')[0]) < 26" in node_check
+    assert "Number(node.split('.')[0]) !== 26" not in node_check
