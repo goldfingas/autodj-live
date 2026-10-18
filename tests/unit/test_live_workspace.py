@@ -24,12 +24,7 @@ def test_live_workspace_pins_toolchain_and_keeps_python_package_optional() -> No
     cargo_config = _toml(".cargo/config.toml")
     pyproject = _toml("pyproject.toml")
 
-    assert set(cargo["workspace"]["members"]) >= {
-        "crates/live-protocol",
-        "crates/live-engine",
-        "crates/live-supervisor",
-        "apps/autodj-live/src-tauri",
-    }
+    assert cargo["workspace"]["members"] == ["crates/live-protocol"]
     assert cargo["workspace"]["resolver"] == "2"
     assert cargo["profile"]["release"]["panic"] == "abort"
     assert toolchain["toolchain"]["channel"] == "1.99.1"
