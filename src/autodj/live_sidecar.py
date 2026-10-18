@@ -27,13 +27,14 @@ def create_live_sidecar_app(*, token_digest: bytes, session_id: UUID) -> FastAPI
 
     @app.get("/live/v1/health")
     async def health(request: Request) -> JSONResponse:
-        authorization = request.headers.get("Authorization", "")
+        authorizations = request.headers.getlist("Authorization")
+        sessions = request.headers.getlist("X-AutoDJ-Live-Session")
+        authorization = authorizations[0] if len(authorizations) == 1 else ""
+        supplied_session = sessions[0] if len(sessions) == 1 else ""
         scheme, separator, candidate = authorization.partition(" ")
         bearer = candidate if separator and scheme.casefold() == "bearer" else ""
         supplied_token_digest = hashlib.sha256(bearer.encode("utf-8")).digest()
-        supplied_session_digest = hashlib.sha256(
-            request.headers.get("X-AutoDJ-Live-Session", "").encode("utf-8")
-        ).digest()
+        supplied_session_digest = hashlib.sha256(supplied_session.encode("utf-8")).digest()
 
         token_matches = hmac.compare_digest(supplied_token_digest, expected_token_digest)
         session_matches = hmac.compare_digest(

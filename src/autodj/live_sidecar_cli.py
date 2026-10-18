@@ -74,4 +74,9 @@ def run_live_sidecar(*, host: str, port: int) -> None:
         sys.stdout.flush()
 
         config = uvicorn.Config(app, host=host, port=bound_port, access_log=False)
-        uvicorn.Server(config).run(sockets=[listener])
+        server = uvicorn.Server(config)
+        try:
+            server.run(sockets=[listener])
+        except KeyboardInterrupt:
+            if not server.should_exit:
+                raise
