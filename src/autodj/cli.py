@@ -427,6 +427,19 @@ def cli(ctx: click.Context, config_path: str | None, verbose: bool) -> None:
         logging.getLogger(name).setLevel(logging.NOTSET if verbose else logging.WARNING)
 
 
+@cli.command("_live-sidecar", hidden=True)
+@click.option("--host", type=click.Choice(["127.0.0.1"]), default="127.0.0.1")
+@click.option("--port", type=click.IntRange(0, 0), default=0)
+def cmd_live_sidecar(host: str, port: int) -> None:
+    """Run the private authenticated AutoDJ Live sidecar."""
+    from autodj.live_sidecar_cli import LiveSidecarStartupError, run_live_sidecar
+
+    try:
+        run_live_sidecar(host=host, port=port)
+    except LiveSidecarStartupError as exc:
+        raise click.ClickException(str(exc)) from None
+
+
 def _file_log_record(record: logging.LogRecord) -> logging.LogRecord:
     """Return *record* as the log file should hold it.
 
