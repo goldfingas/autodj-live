@@ -199,6 +199,78 @@ impl LiveSupervisor {
 }
 
 impl LiveSession {
+    /// Replace only the engine; retain the sidecar and its session credentials on failure.
+    pub async fn restart_engine(&mut self) -> Result<(), SupervisorError> {
+        let _lock = self.config.runtime.lock()?;
+        let _ = request(&mut self.socket, EngineCommand::Shutdown).await;
+        wait_for_exit(&self.engine_handle).await?;
+        let mut engine = ManagedChild::start(
+            &self.config.engine,
+            &token_hex(&self.token),
+            self.record.session_id,
+            false,
+        )
+        .await?;
+        let mut record = self.record.clone();
+        record.pid = engine.descriptor.pid;
+        record.created = engine.created;
+        record.engine_id = engine.descriptor.engine_id.unwrap();
+        record.port = engine.descriptor.port;
+        record.generation = 1;
+        let result = async {
+            let mut socket = connect(&record, &self.token).await?;
+            attach(&mut socket, 1).await?;
+            let handle = engine
+                .handle
+                .try_clone()
+                .map_err(|_| SupervisorError::Discovery)?;
+            self.config.runtime.write(&record)?;
+            Ok((socket, handle))
+        }
+        .await;
+        let (socket, engine_handle) = match result {
+            Ok(pair) => pair,
+            Err(error) => {
+                engine.stop().await?;
+                return Err(error);
+            }
+        };
+        engine.preserve_on_drop();
+        self.engine = Some(engine);
+        self.engine_handle = engine_handle;
+        self.record = record;
+        self.socket = socket;
+        Ok(())
+    }
+
+    /// Replace the sidecar without detaching the engine or advancing its lease.
+    pub async fn restart_sidecar(&mut self) -> Result<(), SupervisorError> {
+        let _lock = self.config.runtime.lock()?;
+        self.sidecar.stop().await?;
+        let mut sidecar = ManagedChild::start(
+            &self.config.sidecar,
+            &token_hex(&self.token),
+            self.record.session_id,
+            true,
+        )
+        .await?;
+        let mut record = self.record.clone();
+        let result = async {
+            sidecar_ready(&sidecar, &self.token, self.record.session_id).await?;
+            record.sidecar_pid = sidecar.descriptor.pid;
+            record.sidecar_created = descriptor_creation(&sidecar)?;
+            self.config.runtime.write(&record)
+        }
+        .await;
+        if let Err(error) = result {
+            sidecar.stop().await?;
+            return Err(error);
+        }
+        self.sidecar = sidecar;
+        self.record = record;
+        Ok(())
+    }
+
     pub fn identity(&self) -> SessionIdentity {
         SessionIdentity {
             pid: self.record.pid,

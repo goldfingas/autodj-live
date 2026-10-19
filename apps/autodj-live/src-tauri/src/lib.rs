@@ -163,8 +163,16 @@ impl<B: SupervisorBackend> FoundationLifecycle<B> {
     }
 
     pub async fn retry(&mut self, component: Component) -> Result<(), Component> {
-        self.status = FoundationStatus::from_health(self.backend.retry(component).await?);
-        Ok(())
+        match self.backend.retry(component).await {
+            Ok(health) => {
+                self.status = FoundationStatus::from_health(health);
+                Ok(())
+            }
+            Err(component) => {
+                self.refresh().await;
+                Err(component)
+            }
+        }
     }
 
     pub async fn shutdown(&mut self) -> Result<(), Component> {
@@ -278,7 +286,12 @@ pub trait SupervisorSession: Send {
     fn sidecar_healthy(
         &self,
     ) -> impl std::future::Future<Output = Result<bool, SupervisorError>> + Send;
-    fn detach(self) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
+    fn restart_engine(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
+    fn restart_sidecar(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
     fn shutdown(self) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
 }
 
@@ -295,8 +308,12 @@ impl SupervisorSession for LiveSession {
         LiveSession::sidecar_healthy(self).await
     }
 
-    async fn detach(self) -> Result<(), SupervisorError> {
-        LiveSession::detach(self).await
+    async fn restart_engine(&mut self) -> Result<(), SupervisorError> {
+        LiveSession::restart_engine(self).await
+    }
+
+    async fn restart_sidecar(&mut self) -> Result<(), SupervisorError> {
+        LiveSession::restart_sidecar(self).await
     }
 
     async fn shutdown(self) -> Result<(), SupervisorError> {
@@ -343,7 +360,6 @@ pub struct ProductionSupervisor<R: SupervisorRuntime = NativeSupervisorRuntime> 
     session: Option<R::Session>,
     runtime: R,
     engine_id: Option<Uuid>,
-    failed_component: Option<Component>,
 }
 
 pub fn resolve_child_paths(
@@ -384,7 +400,6 @@ impl ProductionSupervisor<NativeSupervisorRuntime> {
             session: None,
             runtime: NativeSupervisorRuntime,
             engine_id: None,
-            failed_component: None,
         })
     }
 }
@@ -396,7 +411,6 @@ impl<R: SupervisorRuntime> ProductionSupervisor<R> {
             session: None,
             runtime,
             engine_id: None,
-            failed_component: None,
         }
     }
 
@@ -427,7 +441,6 @@ impl<R: SupervisorRuntime> ProductionSupervisor<R> {
         self.session = Some(session);
         let health = self.health_snapshot().await?;
         self.engine_id = Some(engine_id);
-        self.failed_component = None;
         Ok(BackendConnection {
             engine_id,
             reattached,
@@ -437,55 +450,30 @@ impl<R: SupervisorRuntime> ProductionSupervisor<R> {
 
     async fn health_snapshot(&mut self) -> Result<BackendHealth, SupervisorError> {
         let session = self.session.as_mut().ok_or(SupervisorError::StaleRecord)?;
-        session.engine_healthy().await?;
         Ok(BackendHealth {
-            engine: true,
+            engine: session.engine_healthy().await.is_ok(),
             sidecar: session.sidecar_healthy().await.unwrap_or(false),
         })
     }
 
     async fn retry_inner(&mut self, component: Component) -> Result<BackendHealth, Component> {
+        let Some(session) = self.session.as_mut() else {
+            return self
+                .reconnect()
+                .await
+                .map(|connection| connection.health)
+                .map_err(|_| component);
+        };
         match component {
             Component::Sidecar => {
-                let engine_id = self.engine_id.ok_or(Component::Sidecar)?;
-                if let Some(session) = self.session.take() {
-                    if session.engine_id() != engine_id {
-                        return Err(Component::Sidecar);
-                    }
-                    session.detach().await.map_err(|_| Component::Sidecar)?;
-                }
-                let record = self
-                    .runtime
-                    .load(self.config.clone())
-                    .map_err(|_| Component::Sidecar)?;
-                let session = self
-                    .runtime
-                    .reattach(record)
-                    .await
-                    .map_err(|_| Component::Sidecar)?;
-                if session.engine_id() != engine_id {
-                    return Err(Component::Sidecar);
-                }
-                self.accept(session, true)
-                    .await
-                    .map(|connection| connection.health)
-                    .map_err(|_| Component::Sidecar)
+                session.restart_sidecar().await.map_err(|_| component)?;
             }
             Component::Engine => {
-                if let Some(session) = self.session.take() {
-                    session.shutdown().await.map_err(|_| Component::Engine)?;
-                }
-                let session = self
-                    .runtime
-                    .launch(self.config.clone())
-                    .await
-                    .map_err(|_| Component::Engine)?;
-                self.accept(session, false)
-                    .await
-                    .map(|connection| connection.health)
-                    .map_err(|_| Component::Engine)
+                session.restart_engine().await.map_err(|_| component)?;
             }
         }
+        self.engine_id = Some(session.engine_id());
+        self.health_snapshot().await.map_err(|_| component)
     }
 }
 
@@ -495,18 +483,11 @@ impl<R: SupervisorRuntime> SupervisorBackend for ProductionSupervisor<R> {
     }
 
     async fn health(&mut self) -> Result<BackendHealth, Component> {
-        if let Some(component) = self.failed_component {
-            return Err(component);
-        }
         self.health_snapshot().await.map_err(|_| Component::Engine)
     }
 
     async fn retry(&mut self, component: Component) -> Result<BackendHealth, Component> {
-        let result = self.retry_inner(component).await;
-        if result.is_err() {
-            self.failed_component = Some(component);
-        }
-        result
+        self.retry_inner(component).await
     }
 
     async fn shutdown(&mut self) -> Result<(), Component> {

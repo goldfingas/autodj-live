@@ -19,7 +19,8 @@ struct State {
     sidecar_healthy: bool,
     launches: usize,
     reattachments: usize,
-    detaches: usize,
+    sidecar_restarts: usize,
+    engine_restarts: usize,
     shutdowns: usize,
     stale_reattach: bool,
     reject_reattach: bool,
@@ -54,10 +55,27 @@ impl SupervisorSession for Session {
         Ok(self.state.lock().unwrap().sidecar_healthy)
     }
 
-    async fn detach(self) -> Result<(), SupervisorError> {
+    async fn restart_sidecar(&mut self) -> Result<(), SupervisorError> {
         let mut state = self.state.lock().unwrap();
-        state.detaches += 1;
+        state.sidecar_restarts += 1;
         state.sidecar_healthy = false;
+        if state.reject_reattach {
+            return Err(SupervisorError::Spawn);
+        }
+        state.sidecar_healthy = true;
+        Ok(())
+    }
+
+    async fn restart_engine(&mut self) -> Result<(), SupervisorError> {
+        let mut state = self.state.lock().unwrap();
+        state.engine_restarts += 1;
+        state.engine_healthy = false;
+        if state.reject_launch {
+            return Err(SupervisorError::Spawn);
+        }
+        self.engine_id = Uuid::new_v4();
+        state.engine_id = Some(self.engine_id);
+        state.engine_healthy = true;
         Ok(())
     }
 
@@ -193,18 +211,19 @@ async fn production_retry_preserves_engine_for_sidecar_and_replaces_engine_for_e
         let state = state.lock().unwrap();
         assert_eq!(state.engine_id, Some(original));
         assert_eq!(state.launches, 1);
-        assert_eq!(state.reattachments, 1);
-        assert_eq!(state.detaches, 1);
+        assert_eq!(state.reattachments, 0);
+        assert_eq!(state.sidecar_restarts, 1);
         assert_eq!(state.shutdowns, 0);
     }
 
     backend.retry(Component::Engine).await.unwrap();
     let state = state.lock().unwrap();
     assert_ne!(state.engine_id, Some(original));
-    assert_eq!(state.launches, 2);
-    assert_eq!(state.reattachments, 1);
-    assert_eq!(state.detaches, 1);
-    assert_eq!(state.shutdowns, 1);
+    assert_eq!(state.launches, 1);
+    assert_eq!(state.reattachments, 0);
+    assert_eq!(state.sidecar_restarts, 1);
+    assert_eq!(state.engine_restarts, 1);
+    assert_eq!(state.shutdowns, 0);
 }
 
 #[tokio::test]
@@ -243,7 +262,15 @@ async fn failed_production_retry_retains_the_unrelated_healthy_component() {
     );
     assert_eq!(engine.status().engine, "failed");
     assert_eq!(engine.status().sidecar, "ready");
+    assert!(engine_state.lock().unwrap().sidecar_healthy);
     engine.refresh().await;
     assert_eq!(engine.status().engine, "failed");
     assert_eq!(engine.status().sidecar, "ready");
+    engine_state.lock().unwrap().sidecar_healthy = false;
+    engine.refresh().await;
+    assert_eq!(engine.status().sidecar, "failed");
+    engine_state.lock().unwrap().reject_launch = false;
+    engine.retry(Component::Engine).await.unwrap();
+    assert_eq!(engine.status().engine, "ready");
+    assert_eq!(engine.status().sidecar, "failed");
 }

@@ -6,6 +6,59 @@ use autodj_live_supervisor::{LiveSupervisor, SupervisorError};
 use common::*;
 
 #[tokio::test]
+async fn engine_retry_failure_keeps_sidecar_alive_and_can_recover() {
+    let mut config = config();
+    config.runtime.protection = autodj_live_supervisor::Protection::Portable;
+    let source_engine = config.engine.executable.clone();
+    let retry_engine = directory().with_extension("exe");
+    std::fs::copy(&source_engine, &retry_engine).unwrap();
+    config.engine.executable = retry_engine.clone();
+    let record = config.runtime.record_path();
+    let mut session = LiveSupervisor::launch(config).await.unwrap();
+    let original = session.identity();
+    // A replacement cannot publish discovery while this exact path is a directory.
+    std::fs::remove_file(&record).unwrap();
+    std::fs::create_dir(&record).unwrap();
+    assert!(session.restart_engine().await.is_err());
+    assert!(running(original.sidecar_pid));
+    assert!(session.sidecar_healthy().await.unwrap());
+    assert!(session.health().await.is_err());
+    // Windows refuses deletion of a mapped executable: both engine attempts must be reaped.
+    std::fs::remove_file(&retry_engine).unwrap();
+    assert!(session.restart_engine().await.is_err());
+    assert!(running(original.sidecar_pid));
+    std::fs::copy(&source_engine, &retry_engine).unwrap();
+    std::fs::remove_dir(&record).unwrap();
+    session.restart_engine().await.unwrap();
+    assert_ne!(session.identity().engine_id, original.engine_id);
+    assert_eq!(session.identity().sidecar_pid, original.sidecar_pid);
+    assert!(session.health().await.is_ok());
+    assert!(session.sidecar_healthy().await.unwrap());
+    let replacement = session.identity();
+    session.shutdown().await.unwrap();
+    exited(original.pid).await;
+    exited(replacement.pid).await;
+    exited(original.sidecar_pid).await;
+    std::fs::remove_file(&retry_engine).unwrap();
+}
+
+#[tokio::test]
+async fn sidecar_retry_keeps_engine_attached() {
+    let mut config = config();
+    config.runtime.protection = autodj_live_supervisor::Protection::Portable;
+    let mut session = LiveSupervisor::launch(config).await.unwrap();
+    let original = session.identity();
+    session.restart_sidecar().await.unwrap();
+    assert_eq!(session.identity().engine_id, original.engine_id);
+    assert_eq!(session.identity().pid, original.pid);
+    assert_ne!(session.identity().sidecar_pid, original.sidecar_pid);
+    assert_eq!(session.health().await.unwrap().supervisor_generation, 1);
+    assert!(session.sidecar_healthy().await.unwrap());
+    exited(original.sidecar_pid).await;
+    session.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn one_secret_pair_authenticates_both_children_and_normal_shutdown_reaps_them() {
     let config = config();
     let path = config.runtime.record_path();
