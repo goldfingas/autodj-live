@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "The AutoDJ Live foundation window has no shell, filesystem, opener, updater, or network permissions.",
+  "windows": ["main"],
+  "permissions": []
+}

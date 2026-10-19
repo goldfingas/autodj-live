@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AutoDJ Live",
+  "version": "0.1.0",
+  "identifier": "org.autodj.live",
+  "build": {
+    "beforeDevCommand": "npm exec vite -- --host 127.0.0.1 --port 1420",
+    "beforeBuildCommand": "npm exec vite build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; style-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost ws://127.0.0.1:1420 http://127.0.0.1:1420",
+      "freezePrototype": true
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "AutoDJ Live",
+        "width": 960,
+        "height": 640,
+        "minWidth": 640,
+        "minHeight": 480
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"]
+  }
+}
