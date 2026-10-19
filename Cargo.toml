@@ -2,6 +2,7 @@
 members = [
     "crates/live-protocol",
     "crates/live-engine",
+    "crates/live-supervisor",
 ]
 resolver = "2"
 

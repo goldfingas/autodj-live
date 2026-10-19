@@ -27,6 +27,7 @@ def test_live_workspace_pins_toolchain_and_keeps_python_package_optional() -> No
     assert cargo["workspace"]["members"] == [
         "crates/live-protocol",
         "crates/live-engine",
+        "crates/live-supervisor",
     ]
     assert cargo["workspace"]["resolver"] == "2"
     assert cargo["profile"]["release"]["panic"] == "abort"

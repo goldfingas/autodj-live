@@ -35,6 +35,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "autodj-live-supervisor"
+version = "0.1.0"
+dependencies = [
+ "autodj-live-protocol",
+ "getrandom",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "uuid",
+ "windows-sys",
+ "zeroize",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
