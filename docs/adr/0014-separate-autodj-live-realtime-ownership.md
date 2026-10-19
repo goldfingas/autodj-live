@@ -146,9 +146,18 @@ Planned foundation entrypoints are `crates/live-protocol/` (Task 3),
 `src/autodj/live_sidecar_cli.py` (Task 5), `crates/live-supervisor/` (Task 6),
 and `apps/autodj-live/` (Task 7). Task 2 owns workspace/dependency isolation;
 Task 8 owns CI, development guidance, and the foundation evidence record.
-These are planned paths, not implemented or verified evidence. Later delivery
-stages in the [design](../superpowers/specs/2026-10-17-autodj-live-design.md#delivery-stages)
-own audio, journals, catalog concurrency, hardware, and release validation.
+The foundation paths now exist and are exercised by their workspace checks. The
+exact Rust selectors are `crates/live-engine/tests/process_lifecycle.rs::detach_reattach_preserves_identity_then_expiry_notifies_observers`,
+`crates/live-supervisor/tests/reattach.rs::live_owner_blocks_second_launch_then_drop_reattaches_same_engine_at_generation_two`,
+and `crates/live-protocol/tests/compatibility.rs::wrong_major_version_is_rejected`.
+The Python selector is `tests/unit/test_live_sidecar.py::test_health_rejects_every_bad_credential_without_state`;
+the UI selectors are `apps/autodj-live/src-tauri/tests/app_lifecycle.rs::webview_reload_observes_the_same_engine_identity`
+and `apps/autodj-live/src/status.test.ts`'s foundation status cases. The architecture
+checker can reciprocally validate native Python and JavaScript selectors only;
+Rust and TypeScript selectors remain command-level evidence in the Windows CI
+lane. Later delivery stages in the
+[design](../superpowers/specs/2026-10-17-autodj-live-design.md#delivery-stages)
+still own audio, journals, catalog concurrency, hardware, and release validation.
 
 Use the existing [architecture checker](../../scripts/check_architecture_docs.py)
 and [checker tests](../../tests/unit/test_architecture_docs.py) for structural
@@ -158,15 +167,14 @@ where supported by the checker; preserve manual and unimplemented gaps.
 
 ## Current contracts
 
-IDs remain stable. No Live implementation evidence is established by this
-documentation task. A manual procedure below is an unfulfilled obligation, not
-a claim that the procedure has run or passed.
+IDs remain stable. Automated foundation checks do not make platform, audio, or
+release claims. The Windows restart procedure remains manual evidence.
 
 | ID | Constraint | Method | Evidence |
 | --- | --- | --- | --- |
-| `ADR-0014-01` | A separate Rust engine owns real-time audio/controller state; WebView reload or shell failure does not transfer that ownership to the UI or Python. | gap | Tasks 4, 6, and 7 must establish process identity and lifecycle tests. Later audio stages must verify loaded-deck/controller continuity and callback restrictions; no implementation evidence yet. |
-| `ADR-0014-02` | Engine and sidecar control bind only to `127.0.0.1` on ephemeral ports and require a fresh 256-bit per-launch bearer token before revealing state; secrets stay out of arguments, descriptors, logs, crash reports, and UI. | gap | Tasks 3 through 6 must establish authentication, rejection, redaction, and protected discovery tests; Windows secret protection also needs platform evidence. No implementation evidence yet. |
-| `ADR-0014-03` | A shell crash permits a 30-second engine reconnection lease with no new automation while orphaned; matching sessions reattach without a duplicate owner, and lease expiry exits safely. | gap | Tasks 4 and 6 must establish lease, expiry, generation, and duplicate-owner tests. Persistent recovery later requires validated atomic journals and paused restore with route confirmation; neither lifecycle nor journal implementation evidence exists yet. |
-| `ADR-0014-04` | Existing AutoDJ installs and runs without Rust, Tauri, ASIO, or MIDI components; Live startup never silently installs prerequisites. | gap | Tasks 2 and 5 must establish workspace, launcher, and import-boundary checks; Task 8 must record applicable packaging/CI results. No implementation evidence yet. |
-| `ADR-0014-05` | The shared engine protocol rejects incompatible major versions before accepting control or returning session state; session and ownership generations reject stale commands. | gap | Task 3 owns protocol-version rejection tests; Tasks 4 and 6 own session/reattachment checks. Later deck stages own automation-generation behavior. No implementation evidence yet. |
-| `ADR-0014-06` | Windows process/restart, protected discovery, and actual runtime behavior require manual platform evidence beyond structural or fake-backend checks. | manual | On Windows 11 24H2 or newer, launch Live, record engine/session identity, reload the WebView, terminate and restart the shell within 30 seconds, verify matching reattachment and no duplicate engine, then repeat without restart to verify safe lease expiry. Exercise sidecar failure and normal shutdown; inspect discovery privacy and token redaction. Record exact build, Windows version, timings, commands, results, and limitations in Task 8's evidence record. Not yet performed; later audio/hardware and NVDA/release evidence remain separate obligations. |
+| `ADR-0014-01` | A separate Rust engine owns real-time audio/controller state; WebView reload or shell failure does not transfer that ownership to the UI or Python. | automated | Rust: crates/live-engine/tests/process_lifecycle.rs::detach_reattach_preserves_identity_then_expiry_notifies_observers; UI: apps/autodj-live/src-tauri/tests/app_lifecycle.rs::webview_reload_observes_the_same_engine_identity. The checker-recognized CI policy is `tests/unit/test_live_workspace.py::test_ci_has_windows_live_gate`. Audio/controller continuity remains a later-stage gap. |
+| `ADR-0014-02` | Engine and sidecar control bind only to `127.0.0.1` on ephemeral ports and require a fresh 256-bit per-launch bearer token before revealing state; secrets stay out of arguments, descriptors, logs, crash reports, and UI. | automated | Python: `tests/unit/test_live_sidecar.py::test_health_rejects_every_bad_credential_without_state`; Rust: crates/live-engine/tests/authentication.rs::unauthenticated_or_incompatible_clients_receive_no_bytes and crates/live-supervisor/tests/supervision.rs::one_secret_pair_authenticates_both_children_and_normal_shutdown_reaps_them. Windows secret protection remains manual evidence. |
+| `ADR-0014-03` | A shell crash permits a 30-second engine reconnection lease with no new automation while orphaned; matching sessions reattach without a duplicate owner, and lease expiry exits safely. | manual | Automated Rust coverage is in crates/live-engine/tests/process_lifecycle.rs::detach_reattach_preserves_identity_then_expiry_notifies_observers and crates/live-supervisor/tests/reattach.rs::live_owner_blocks_second_launch_then_drop_reattaches_same_engine_at_generation_two. The required Windows restart/lease process result remains recorded manually in `docs/autodj-live/foundation-evidence.md`; persistent recovery journals remain a later gap. |
+| `ADR-0014-04` | Existing AutoDJ installs and runs without Rust, Tauri, ASIO, or MIDI components; Live startup never silently installs prerequisites. | automated | `tests/unit/test_live_workspace.py::test_live_bundle_stages_a_complete_locked_python_runtime` and `tests/unit/test_live_workspace.py::test_ci_has_windows_live_gate`; the Windows lane stages an isolated, locked sidecar runtime and builds only an unsigned development bundle. |
+| `ADR-0014-05` | The shared engine protocol rejects incompatible major versions before accepting control or returning session state; session and ownership generations reject stale commands. | manual | Automated Rust coverage is in crates/live-protocol/tests/compatibility.rs::wrong_major_version_is_rejected and crates/live-supervisor/tests/reattach.rs::live_owner_blocks_second_launch_then_drop_reattaches_same_engine_at_generation_two. Later deck stages own automation-generation behavior. |
+| `ADR-0014-06` | Windows process/restart, protected discovery, and actual runtime behavior require manual platform evidence beyond structural or fake-backend checks. | manual | On Windows 11 24H2 or newer, launch Live, record engine/session identity, reload the WebView, terminate and restart the shell within 30 seconds, verify matching reattachment and no duplicate engine, then repeat without restart to verify safe lease expiry. Exercise sidecar failure and normal shutdown; inspect discovery privacy and token redaction. Record exact build, Windows version, timings, commands, results, and limitations in `docs/autodj-live/foundation-evidence.md`. Audio/hardware and NVDA/release evidence remain separate obligations. |

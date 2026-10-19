@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.14.*"
 
 [[package]]
@@ -158,6 +158,12 @@ dev = [
     { name = "ruff" },
     { name = "vulture" },
 ]
+live-sidecar = [
+    { name = "click" },
+    { name = "fastapi" },
+    { name = "rich" },
+    { name = "uvicorn" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -208,6 +214,12 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.6.0" },
     { name = "ruff", specifier = ">=0.15.10" },
     { name = "vulture", specifier = ">=2.16" },
+]
+live-sidecar = [
+    { name = "click", specifier = ">=8.1.0" },
+    { name = "fastapi", specifier = ">=0.136.3" },
+    { name = "rich", specifier = ">=13.0.0" },
+    { name = "uvicorn", specifier = ">=0.47.0" },
 ]
 
 [[package]]

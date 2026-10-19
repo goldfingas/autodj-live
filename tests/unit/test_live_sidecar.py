@@ -60,6 +60,7 @@ def client() -> TestClient:
 def test_health_rejects_every_bad_credential_without_state(
     client: TestClient, headers: dict[str, str]
 ) -> None:
+    """ADR-0014-02: invalid credentials reveal no sidecar state."""
     response = client.get("/live/v1/health", headers=headers)
 
     assert response.status_code == 401

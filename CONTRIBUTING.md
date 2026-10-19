@@ -27,6 +27,28 @@ Full suite must remain green. `scripts/ci_pytest.py` fails below 90% line covera
 `pyproject.toml`); there is no branch floor. Add a test only for a defect it would catch, not to
 raise the number. New behavior needs focused tests. Only add regression tests if they test a meaningful outcome.
 
+## AutoDJ Live on Windows
+
+AutoDJ Live is optional. Normal AutoDJ contributors do not need Rust, Tauri, a
+WebView runtime, or the Live build commands to work on the browser/server
+application. Live setup is manual: the build does not install system
+prerequisites for you.
+
+For the Windows desktop foundation, install the following before running its
+commands:
+
+- Microsoft C++ Build Tools with the MSVC x64/x86 build tools and Windows SDK;
+- Microsoft Edge WebView2 Runtime;
+- Rust `1.99.1` with the `x86_64-pc-windows-msvc` host, `rustfmt`, and `clippy`;
+- Node.js 26 (CI pins `26.12.0`); and
+- Python 3.14 plus `uv`.
+
+After the normal `uv sync --frozen --all-extras` and `npm ci --ignore-scripts`,
+run `npm run live:check`. It only reports missing or incompatible prerequisites;
+it does not install them or launch AutoDJ Live. See
+[AutoDJ Live development](docs/autodj-live/development.md) for focused checks,
+the unsigned development build, and its packaging boundaries.
+
 ## Checks before a push
 
 `uv run pre-commit install` installs a pre-push hook as well as the commit hooks. When a push changes web

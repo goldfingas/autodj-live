@@ -31,7 +31,7 @@
     "targets": ["nsis"],
     "resources": {
       "../../../target/x86_64-pc-windows-msvc/release/autodj-live-engine.exe": "autodj-live-engine.exe",
-      "../../../.venv/Scripts/python.exe": "python/python.exe"
+      "../../../target/live-sidecar/python": "python"
     }
   }
 }

@@ -224,3 +224,11 @@ dev = [
     "pytest-xdist>=3.6.0",   # parallel test execution
     "pip-licenses>=5.0",     # license auditor
 ]
+live-sidecar = [
+    # The bundled sidecar deliberately avoids AutoDJ's library, model, and
+    # playback dependency graph.  Keep this list aligned with its imports.
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "fastapi>=0.136.3",
+    "uvicorn>=0.47.0",
+]

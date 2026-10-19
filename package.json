@@ -17,7 +17,8 @@
     "audit:visual": "node tests/playwright/visual_audit.mjs",
     "audit:ci": "npm run audit:health && npm run audit:transitions && npm run audit:visual",
     "live:dev": "npm run dev --workspace @autodj/live",
-    "live:build": "npm run build --workspace @autodj/live",
+    "live:stage": "python scripts/stage_live_sidecar.py",
+    "live:build": "npm run live:stage && npm run build --workspace @autodj/live",
     "live:test": "npm run test --workspace @autodj/live",
     "live:check": "npm run check --workspace @autodj/live"
   },

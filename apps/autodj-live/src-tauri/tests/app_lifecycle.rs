@@ -175,8 +175,5 @@ fn bundle_resources_land_at_the_production_child_defaults() {
         resources["../../../target/x86_64-pc-windows-msvc/release/autodj-live-engine.exe"],
         "autodj-live-engine.exe"
     );
-    assert_eq!(
-        resources["../../../.venv/Scripts/python.exe"],
-        "python/python.exe"
-    );
+    assert_eq!(resources["../../../target/live-sidecar/python"], "python");
 }
