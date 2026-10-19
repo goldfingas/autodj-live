@@ -158,6 +158,92 @@ pub fn with_public_acl(path: &std::path::Path, check: impl FnOnce()) {
     }
 }
 
+fn set_owner_only_acl(path: &std::path::Path, inheriting: bool) {
+    use std::{os::windows::ffi::OsStrExt, ptr::null_mut};
+    use windows_sys::Win32::{
+        Foundation::LocalFree,
+        Security::{
+            Authorization::{
+                ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+                GetNamedSecurityInfoW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
+            },
+            DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, OWNER_SECURITY_INFORMATION,
+            PROTECTED_DACL_SECURITY_INFORMATION,
+        },
+    };
+    let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    unsafe {
+        let mut owner = null_mut();
+        let mut original = null_mut();
+        assert_eq!(
+            GetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION,
+                &mut owner,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                &mut original,
+            ),
+            0
+        );
+        let mut sid_text = null_mut();
+        assert_ne!(ConvertSidToStringSidW(owner, &mut sid_text), 0);
+        let mut length = 0;
+        while *sid_text.add(length) != 0 {
+            length += 1;
+        }
+        let sid = String::from_utf16(std::slice::from_raw_parts(sid_text, length)).unwrap();
+        let inheritance = if inheriting { "OICI" } else { "" };
+        let sddl: Vec<u16> = format!("O:{sid}D:P(A;{inheritance};FA;;;{sid})")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut descriptor = null_mut();
+        assert_ne!(
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                1,
+                &mut descriptor,
+                null_mut(),
+            ),
+            0
+        );
+        let mut present = 0;
+        let mut defaulted = 0;
+        let mut acl = null_mut();
+        assert_ne!(
+            GetSecurityDescriptorDacl(descriptor, &mut present, &mut acl, &mut defaulted),
+            0
+        );
+        assert_ne!(present, 0);
+        assert_eq!(
+            SetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                acl,
+                std::ptr::null(),
+            ),
+            0
+        );
+        LocalFree(descriptor);
+        LocalFree(sid_text.cast());
+        LocalFree(original);
+    }
+}
+
+pub fn set_owner_only_non_inheriting_acl(path: &std::path::Path) {
+    set_owner_only_acl(path, false);
+}
+
+pub fn set_owner_only_inheriting_acl(path: &std::path::Path) {
+    set_owner_only_acl(path, true);
+}
+
 pub fn wire_credentials(path: &std::path::Path) -> (u16, autodj_live_protocol::ClientHello) {
     use autodj_live_protocol::{BearerToken, ClientHello, ProtocolVersion};
     use std::ptr::{null, null_mut};

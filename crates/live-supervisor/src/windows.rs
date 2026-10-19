@@ -22,15 +22,17 @@ use windows_sys::Win32::{
             ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
             GetNamedSecurityInfoW, SE_FILE_OBJECT,
         },
+        CONTAINER_INHERIT_ACE,
         Cryptography::{
             CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
         },
         DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetSecurityDescriptorControl,
-        GetTokenInformation, OWNER_SECURITY_INFORMATION, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
-        TOKEN_QUERY, TOKEN_USER, TokenUser,
+        GetTokenInformation, OBJECT_INHERIT_ACE, OWNER_SECURITY_INFORMATION, SE_DACL_PROTECTED,
+        SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
     },
     Storage::FileSystem::{
-        CreateDirectoryW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+        CreateDirectoryW, FILE_ALL_ACCESS, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        MoveFileExW,
     },
     System::Threading::{
         GetCurrentProcess, GetProcessTimes, OpenProcess, OpenProcessToken,
@@ -174,7 +176,15 @@ pub(crate) fn private_file(path: &Path, directory: bool) -> Result<(), Superviso
             return Err(SupervisorError::Privacy);
         }
         let ace = &*ace.cast::<ACCESS_ALLOWED_ACE>();
-        if ace.Header.AceType != 0 /* ACCESS_ALLOWED_ACE_TYPE */ || EqualSid((&ace.SidStart as *const u32).cast_mut().cast(), sid) == 0
+        let required_inheritance = (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) as u8;
+        if ace.Header.AceType != 0 /* ACCESS_ALLOWED_ACE_TYPE */
+            || ace.Mask & FILE_ALL_ACCESS != FILE_ALL_ACCESS
+            || (directory
+                && ace.Header.AceFlags & required_inheritance != required_inheritance)
+            || EqualSid(
+                (&ace.SidStart as *const u32).cast_mut().cast(),
+                sid,
+            ) == 0
         {
             return Err(SupervisorError::Privacy);
         }

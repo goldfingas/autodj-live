@@ -192,6 +192,38 @@ async fn portable_discovery_refuses_a_public_runtime_directory() {
 }
 
 #[tokio::test]
+async fn portable_discovery_refuses_owner_only_directory_without_child_inheritance() {
+    let mut config = config();
+    config.runtime.protection = Protection::Portable;
+    let record = config.runtime.record_path();
+    let directory = record.parent().unwrap();
+    std::fs::create_dir(directory).unwrap();
+    set_owner_only_non_inheriting_acl(directory);
+
+    let result = LiveSupervisor::launch(config).await;
+    let error = match result {
+        Ok(session) => {
+            let token_was_exposed = record.exists();
+            std::fs::remove_file(&record).unwrap();
+            std::fs::remove_file(directory.join("supervisor.lock")).unwrap();
+            set_owner_only_inheriting_acl(directory);
+            session.shutdown().await.unwrap();
+            assert!(
+                !token_was_exposed,
+                "portable token reached an untrusted child ACL"
+            );
+            None
+        }
+        Err(error) => Some(error),
+    };
+    assert_eq!(error, Some(SupervisorError::Privacy));
+    assert!(
+        !record.exists(),
+        "fail-closed launch must not write a token"
+    );
+}
+
+#[tokio::test]
 async fn killing_supervisor_process_kills_sidecar_but_engine_reattaches() {
     use std::process::{Command, Stdio};
     let config = config();

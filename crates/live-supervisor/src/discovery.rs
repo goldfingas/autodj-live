@@ -77,8 +77,11 @@ impl RuntimeStore {
             .write(true)
             .create(true)
             .truncate(false)
-            .open(lock_path)
+            .open(&lock_path)
             .map_err(|_| SupervisorError::Discovery)?;
+        // Validate newly inherited ACLs before using the lock as the authority
+        // for discovery operations.
+        windows::private_file(&lock_path, false)?;
         windows::lock(&file)?;
         Ok(file)
     }
@@ -124,6 +127,9 @@ impl RuntimeStore {
                 .create_new(true)
                 .open(&temporary)
                 .map_err(|_| SupervisorError::Discovery)?;
+            // Portable records contain the raw bearer token. Never write even
+            // protected bytes until the newly inherited file ACL is verified.
+            windows::private_file(&temporary, false)?;
             let bytes =
                 Zeroizing::new(serde_json::to_vec(record).map_err(|_| SupervisorError::Discovery)?);
             file.write_all(&bytes)
