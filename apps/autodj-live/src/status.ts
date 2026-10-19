@@ -65,6 +65,7 @@ export function mountStatusSurface(root: HTMLElement, api: FoundationApi) {
   intro.textContent = "Foundation services";
   const overall = document.createElement("p");
   overall.className = "overall";
+  overall.tabIndex = -1;
   const list = document.createElement("dl");
   const engine = componentRow("engine");
   const sidecar = componentRow("sidecar");
@@ -117,7 +118,7 @@ export function mountStatusSurface(root: HTMLElement, api: FoundationApi) {
     if (!target) return;
     const focused = document.activeElement === retry;
     render(await api.retry(target));
-    if (focused) retry.focus();
+    if (focused) overall.focus();
   });
   shutdown.addEventListener("click", async () => {
     await api.shutdown();

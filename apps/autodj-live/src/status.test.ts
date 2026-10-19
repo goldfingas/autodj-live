@@ -69,7 +69,7 @@ describe("foundation status surface", () => {
     expect(document.querySelector("button")?.textContent).toBe("Retry sidecar");
   });
 
-  test("retry retains keyboard focus", async () => {
+  test("successful retry moves keyboard focus to the visible status summary", async () => {
     const degraded: FoundationStatus = {
       state: "degraded",
       engine: "ready",
@@ -77,14 +77,19 @@ describe("foundation status surface", () => {
       uptimeSeconds: 4,
     };
     const client = api(degraded);
+    vi.mocked(client.retry).mockResolvedValue(READY);
     const surface = mountStatusSurface(document.body, client);
     await surface.refresh();
     const button = document.querySelector("button") as HTMLButtonElement;
     button.focus();
     button.click();
-    await vi.waitFor(() => expect(client.retry).toHaveBeenCalledWith("sidecar"));
+    await vi.waitFor(() => expect(document.activeElement).not.toBe(button));
 
-    expect(document.activeElement).toBe(button);
+    const summary = document.querySelector(".overall") as HTMLElement;
+    expect(button.hidden).toBe(true);
+    expect(summary.hidden).toBe(false);
+    expect(summary.textContent).toBe("AutoDJ Live is ready");
+    expect(document.activeElement).toBe(summary);
   });
 
   test("keeps ticking uptime outside the live region", async () => {

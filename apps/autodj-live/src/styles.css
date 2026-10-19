@@ -62,7 +62,8 @@ button {
   font-weight: 700;
 }
 
-button:focus-visible {
+button:focus-visible,
+.overall:focus-visible {
   outline: 3px solid #fff;
   outline-offset: 3px;
 }
@@ -85,5 +86,6 @@ button:focus-visible {
 
 @media (forced-colors: active) {
   dl > div { border-color: CanvasText; }
-  button:focus-visible { outline-color: Highlight; }
+  button:focus-visible,
+  .overall:focus-visible { outline-color: Highlight; }
 }

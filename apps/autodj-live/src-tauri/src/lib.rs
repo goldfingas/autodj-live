@@ -1,5 +1,3 @@
-#![allow(async_fn_in_trait)]
-
 use std::{
     path::PathBuf,
     sync::{
@@ -39,10 +37,17 @@ pub struct BackendConnection {
 }
 
 pub trait SupervisorBackend: Send {
-    async fn connect(&mut self) -> Result<BackendConnection, Component>;
-    async fn health(&mut self) -> Result<BackendHealth, Component>;
-    async fn retry(&mut self, component: Component) -> Result<BackendHealth, Component>;
-    async fn shutdown(&mut self) -> Result<(), Component>;
+    fn connect(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<BackendConnection, Component>> + Send;
+    fn health(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<BackendHealth, Component>> + Send;
+    fn retry(
+        &mut self,
+        component: Component,
+    ) -> impl std::future::Future<Output = Result<BackendHealth, Component>> + Send;
+    fn shutdown(&mut self) -> impl std::future::Future<Output = Result<(), Component>> + Send;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -199,19 +204,177 @@ impl<B: SupervisorBackend> FoundationLifecycle<B> {
     }
 }
 
-struct ProductionSupervisor {
-    config: LaunchConfig,
-    session: Option<LiveSession>,
+pub struct ShellLifecycle<B> {
+    lifecycle: Mutex<FoundationLifecycle<B>>,
+    exiting: AtomicBool,
 }
 
-impl ProductionSupervisor {
+impl<B: SupervisorBackend> ShellLifecycle<B> {
+    pub fn new(backend: B) -> Self {
+        Self {
+            lifecycle: Mutex::new(FoundationLifecycle::new(backend)),
+            exiting: AtomicBool::new(false),
+        }
+    }
+
+    pub async fn setup(&self) -> Result<(), Component> {
+        self.lifecycle.lock().await.setup().await
+    }
+
+    pub async fn status(&self) -> FoundationStatus {
+        let mut lifecycle = self.lifecycle.lock().await;
+        if let Some(status) = lifecycle.poll_transition() {
+            return status;
+        }
+        lifecycle.refresh().await;
+        lifecycle.status()
+    }
+
+    pub async fn retry(&self, component: Component) -> Result<FoundationStatus, Component> {
+        let mut lifecycle = self.lifecycle.lock().await;
+        lifecycle.retry(component).await?;
+        Ok(lifecycle.status())
+    }
+
+    pub async fn shutdown(&self) -> Result<(), Component> {
+        self.lifecycle.lock().await.shutdown().await
+    }
+
+    pub fn claim_exit(&self) -> bool {
+        !self.exiting.swap(true, Ordering::SeqCst)
+    }
+
+    pub async fn shutdown_after_exit_request(&self) {
+        let _ = self.shutdown().await;
+    }
+
+    pub async fn engine_id(&self) -> Option<Uuid> {
+        self.lifecycle.lock().await.engine_id()
+    }
+}
+
+pub fn request_orderly_exit<B, P, F>(state: Arc<ShellLifecycle<B>>, prevent: P, exit: F) -> bool
+where
+    B: SupervisorBackend + 'static,
+    P: FnOnce(),
+    F: FnOnce() + Send + 'static,
+{
+    if !state.claim_exit() {
+        return false;
+    }
+    prevent();
+    tauri::async_runtime::spawn(async move {
+        state.shutdown_after_exit_request().await;
+        exit();
+    });
+    true
+}
+
+pub trait SupervisorSession: Send {
+    fn engine_id(&self) -> Uuid;
+    fn engine_healthy(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
+    fn sidecar_healthy(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, SupervisorError>> + Send;
+    fn detach(self) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
+    fn shutdown(self) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
+}
+
+impl SupervisorSession for LiveSession {
+    fn engine_id(&self) -> Uuid {
+        self.identity().engine_id
+    }
+
+    async fn engine_healthy(&mut self) -> Result<(), SupervisorError> {
+        LiveSession::health(self).await.map(|_| ())
+    }
+
+    async fn sidecar_healthy(&self) -> Result<bool, SupervisorError> {
+        LiveSession::sidecar_healthy(self).await
+    }
+
+    async fn detach(self) -> Result<(), SupervisorError> {
+        LiveSession::detach(self).await
+    }
+
+    async fn shutdown(self) -> Result<(), SupervisorError> {
+        LiveSession::shutdown(self).await
+    }
+}
+
+pub trait SupervisorRuntime: Send {
+    type Record: Send;
+    type Session: SupervisorSession;
+
+    fn load(&mut self, config: LaunchConfig) -> Result<Self::Record, SupervisorError>;
+    fn reattach(
+        &mut self,
+        record: Self::Record,
+    ) -> impl std::future::Future<Output = Result<Self::Session, SupervisorError>> + Send;
+    fn launch(
+        &mut self,
+        config: LaunchConfig,
+    ) -> impl std::future::Future<Output = Result<Self::Session, SupervisorError>> + Send;
+}
+
+pub struct NativeSupervisorRuntime;
+
+impl SupervisorRuntime for NativeSupervisorRuntime {
+    type Record = RuntimeRecord;
+    type Session = LiveSession;
+
+    fn load(&mut self, config: LaunchConfig) -> Result<Self::Record, SupervisorError> {
+        RuntimeRecord::load(config)
+    }
+
+    async fn reattach(&mut self, record: Self::Record) -> Result<Self::Session, SupervisorError> {
+        LiveSupervisor::reattach(record).await
+    }
+
+    async fn launch(&mut self, config: LaunchConfig) -> Result<Self::Session, SupervisorError> {
+        LiveSupervisor::launch(config).await
+    }
+}
+
+pub struct ProductionSupervisor<R: SupervisorRuntime = NativeSupervisorRuntime> {
+    config: LaunchConfig,
+    session: Option<R::Session>,
+    runtime: R,
+    engine_id: Option<Uuid>,
+    failed_component: Option<Component>,
+}
+
+pub fn resolve_child_paths(
+    resource_dir: PathBuf,
+    release: bool,
+    engine_override: Option<PathBuf>,
+    python_override: Option<PathBuf>,
+) -> (PathBuf, PathBuf) {
+    let bundled_engine = resource_dir.join("autodj-live-engine.exe");
+    let bundled_python = resource_dir.join("python").join("python.exe");
+    if release {
+        (bundled_engine, bundled_python)
+    } else {
+        (
+            engine_override.unwrap_or(bundled_engine),
+            python_override.unwrap_or(bundled_python),
+        )
+    }
+}
+
+impl ProductionSupervisor<NativeSupervisorRuntime> {
     fn new(resource_dir: PathBuf) -> Result<Self, SupervisorError> {
-        let engine = std::env::var_os("AUTODJ_LIVE_ENGINE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| resource_dir.join("autodj-live-engine.exe"));
-        let python = std::env::var_os("AUTODJ_LIVE_PYTHON")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| resource_dir.join("python").join("python.exe"));
+        let release = env!("AUTODJ_BUILD_PROFILE") == "release";
+        let engine_override = (!release)
+            .then(|| std::env::var_os("AUTODJ_LIVE_ENGINE").map(PathBuf::from))
+            .flatten();
+        let python_override = (!release)
+            .then(|| std::env::var_os("AUTODJ_LIVE_PYTHON").map(PathBuf::from))
+            .flatten();
+        let (engine, python) =
+            resolve_child_paths(resource_dir, release, engine_override, python_override);
         Ok(Self {
             config: LaunchConfig {
                 engine: ChildCommand::new(engine),
@@ -219,61 +382,131 @@ impl ProductionSupervisor {
                 runtime: RuntimeStore::installed()?,
             },
             session: None,
+            runtime: NativeSupervisorRuntime,
+            engine_id: None,
+            failed_component: None,
         })
     }
+}
 
-    async fn reconnect(&mut self) -> Result<BackendConnection, Component> {
-        let existing = RuntimeRecord::load(self.config.clone());
+impl<R: SupervisorRuntime> ProductionSupervisor<R> {
+    pub fn with_runtime(config: LaunchConfig, runtime: R) -> Self {
+        Self {
+            config,
+            session: None,
+            runtime,
+            engine_id: None,
+            failed_component: None,
+        }
+    }
+
+    async fn reconnect(&mut self) -> Result<BackendConnection, SupervisorError> {
+        let existing = self.runtime.load(self.config.clone());
         let (session, reattached) = match existing {
-            Ok(record) => (
-                LiveSupervisor::reattach(record)
-                    .await
-                    .map_err(|_| Component::Engine)?,
-                true,
-            ),
-            Err(SupervisorError::StaleRecord) => (
-                LiveSupervisor::launch(self.config.clone())
-                    .await
-                    .map_err(|_| Component::Engine)?,
-                false,
-            ),
-            Err(_) => return Err(Component::Engine),
+            Ok(record) => match self.runtime.reattach(record).await {
+                Ok(session) => (session, true),
+                Err(SupervisorError::StaleRecord) => {
+                    (self.runtime.launch(self.config.clone()).await?, false)
+                }
+                Err(error) => return Err(error),
+            },
+            Err(SupervisorError::StaleRecord) => {
+                (self.runtime.launch(self.config.clone()).await?, false)
+            }
+            Err(error) => return Err(error),
         };
-        let engine_id = session.identity().engine_id;
+        self.accept(session, reattached).await
+    }
+
+    async fn accept(
+        &mut self,
+        session: R::Session,
+        reattached: bool,
+    ) -> Result<BackendConnection, SupervisorError> {
+        let engine_id = session.engine_id();
         self.session = Some(session);
-        let health = self.health().await?;
+        let health = self.health_snapshot().await?;
+        self.engine_id = Some(engine_id);
+        self.failed_component = None;
         Ok(BackendConnection {
             engine_id,
             reattached,
             health,
         })
     }
-}
 
-impl SupervisorBackend for ProductionSupervisor {
-    async fn connect(&mut self) -> Result<BackendConnection, Component> {
-        self.reconnect().await
-    }
-
-    async fn health(&mut self) -> Result<BackendHealth, Component> {
-        let session = self.session.as_mut().ok_or(Component::Engine)?;
-        session.health().await.map_err(|_| Component::Engine)?;
+    async fn health_snapshot(&mut self) -> Result<BackendHealth, SupervisorError> {
+        let session = self.session.as_mut().ok_or(SupervisorError::StaleRecord)?;
+        session.engine_healthy().await?;
         Ok(BackendHealth {
             engine: true,
             sidecar: session.sidecar_healthy().await.unwrap_or(false),
         })
     }
 
-    async fn retry(&mut self, component: Component) -> Result<BackendHealth, Component> {
-        // Detach establishes the orphaned state before reconnecting, so a
-        // sidecar retry preserves the engine without racing a second owner.
-        if let Some(session) = self.session.take() {
-            session.detach().await.map_err(|_| component)?;
+    async fn retry_inner(&mut self, component: Component) -> Result<BackendHealth, Component> {
+        match component {
+            Component::Sidecar => {
+                let engine_id = self.engine_id.ok_or(Component::Sidecar)?;
+                if let Some(session) = self.session.take() {
+                    if session.engine_id() != engine_id {
+                        return Err(Component::Sidecar);
+                    }
+                    session.detach().await.map_err(|_| Component::Sidecar)?;
+                }
+                let record = self
+                    .runtime
+                    .load(self.config.clone())
+                    .map_err(|_| Component::Sidecar)?;
+                let session = self
+                    .runtime
+                    .reattach(record)
+                    .await
+                    .map_err(|_| Component::Sidecar)?;
+                if session.engine_id() != engine_id {
+                    return Err(Component::Sidecar);
+                }
+                self.accept(session, true)
+                    .await
+                    .map(|connection| connection.health)
+                    .map_err(|_| Component::Sidecar)
+            }
+            Component::Engine => {
+                if let Some(session) = self.session.take() {
+                    session.shutdown().await.map_err(|_| Component::Engine)?;
+                }
+                let session = self
+                    .runtime
+                    .launch(self.config.clone())
+                    .await
+                    .map_err(|_| Component::Engine)?;
+                self.accept(session, false)
+                    .await
+                    .map(|connection| connection.health)
+                    .map_err(|_| Component::Engine)
+            }
         }
-        self.reconnect()
-            .await
-            .map(|connection| connection.health)
-            .map_err(|_| component)
+    }
+}
+
+impl<R: SupervisorRuntime> SupervisorBackend for ProductionSupervisor<R> {
+    async fn connect(&mut self) -> Result<BackendConnection, Component> {
+        self.reconnect().await.map_err(|_| Component::Engine)
+    }
+
+    async fn health(&mut self) -> Result<BackendHealth, Component> {
+        if let Some(component) = self.failed_component {
+            return Err(component);
+        }
+        self.health_snapshot().await.map_err(|_| Component::Engine)
+    }
+
+    async fn retry(&mut self, component: Component) -> Result<BackendHealth, Component> {
+        let result = self.retry_inner(component).await;
+        if result.is_err() {
+            self.failed_component = Some(component);
+        }
+        result
     }
 
     async fn shutdown(&mut self) -> Result<(), Component> {
@@ -284,21 +517,13 @@ impl SupervisorBackend for ProductionSupervisor {
     }
 }
 
-struct AppState {
-    lifecycle: Mutex<FoundationLifecycle<ProductionSupervisor>>,
-    exiting: AtomicBool,
-}
+type AppState = ShellLifecycle<ProductionSupervisor>;
 
 #[tauri::command]
 async fn get_foundation_status(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<FoundationStatus, ()> {
-    let mut lifecycle = state.lifecycle.lock().await;
-    if let Some(status) = lifecycle.poll_transition() {
-        return Ok(status);
-    }
-    lifecycle.refresh().await;
-    Ok(lifecycle.status())
+    Ok(state.status().await)
 }
 
 #[tauri::command]
@@ -306,20 +531,12 @@ async fn retry_component(
     component: Component,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<FoundationStatus, ()> {
-    let mut lifecycle = state.lifecycle.lock().await;
-    lifecycle.retry(component).await.map_err(|_| ())?;
-    Ok(lifecycle.status())
+    state.retry(component).await.map_err(|_| ())
 }
 
 #[tauri::command]
 async fn shutdown_live(state: tauri::State<'_, Arc<AppState>>) -> Result<(), ()> {
-    state
-        .lifecycle
-        .lock()
-        .await
-        .shutdown()
-        .await
-        .map_err(|_| ())
+    state.shutdown().await.map_err(|_| ())
 }
 
 pub fn run() {
@@ -332,13 +549,10 @@ pub fn run() {
         .setup(|app| {
             let resource_dir = app.path().resource_dir()?;
             let backend = ProductionSupervisor::new(resource_dir)?;
-            app.manage(Arc::new(AppState {
-                lifecycle: Mutex::new(FoundationLifecycle::new(backend)),
-                exiting: AtomicBool::new(false),
-            }));
+            app.manage(Arc::new(ShellLifecycle::new(backend)));
             let state = app.state::<Arc<AppState>>().inner().clone();
             tauri::async_runtime::spawn(async move {
-                let _ = state.lifecycle.lock().await.setup().await;
+                let _ = state.setup().await;
             });
             Ok(())
         })
@@ -348,14 +562,8 @@ pub fn run() {
     app.run(|handle, event| {
         if let RunEvent::ExitRequested { api, .. } = event {
             let state = handle.state::<Arc<AppState>>().inner().clone();
-            if !state.exiting.swap(true, Ordering::SeqCst) {
-                api.prevent_exit();
-                let handle = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = state.lifecycle.lock().await.shutdown().await;
-                    handle.exit(0);
-                });
-            }
+            let handle = handle.clone();
+            request_orderly_exit(state, || api.prevent_exit(), move || handle.exit(0));
         }
     });
 }

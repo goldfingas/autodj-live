@@ -1,10 +1,14 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use autodj_live_app::{
-    BackendConnection, BackendHealth, Component, FoundationLifecycle, SupervisorBackend,
+    BackendConnection, BackendHealth, Component, FoundationLifecycle, ShellLifecycle,
+    SupervisorBackend, request_orderly_exit,
 };
 use uuid::Uuid;
 
@@ -69,12 +73,12 @@ impl SupervisorBackend for FakeSupervisor {
 }
 
 #[tokio::test]
-async fn setup_launches_once_and_an_extra_window_does_not_spawn_children() {
+async fn shell_setup_launches_once_and_a_second_window_does_not_spawn_children() {
     let shared = Arc::new(Mutex::new(Shared::default()));
-    let mut lifecycle = FoundationLifecycle::new(FakeSupervisor::new(shared.clone()));
+    let shell = ShellLifecycle::new(FakeSupervisor::new(shared.clone()));
 
-    lifecycle.setup().await.unwrap();
-    lifecycle.setup().await.unwrap();
+    shell.setup().await.unwrap();
+    shell.setup().await.unwrap();
 
     assert_eq!(shared.lock().unwrap().launches, 1);
 }
@@ -82,13 +86,13 @@ async fn setup_launches_once_and_an_extra_window_does_not_spawn_children() {
 #[tokio::test]
 async fn webview_reload_observes_the_same_engine_identity() {
     let shared = Arc::new(Mutex::new(Shared::default()));
-    let mut lifecycle = FoundationLifecycle::new(FakeSupervisor::new(shared));
-    lifecycle.setup().await.unwrap();
+    let shell = ShellLifecycle::new(FakeSupervisor::new(shared));
+    shell.setup().await.unwrap();
 
-    let before = lifecycle.engine_id().unwrap();
-    lifecycle.refresh().await;
+    let before = shell.engine_id().await.unwrap();
+    shell.status().await;
 
-    assert_eq!(lifecycle.engine_id(), Some(before));
+    assert_eq!(shell.engine_id().await, Some(before));
 }
 
 #[tokio::test]
@@ -126,14 +130,26 @@ async fn retry_targets_only_the_failed_component() {
 #[tokio::test]
 async fn normal_exit_requests_orderly_shutdown_once() {
     let shared = Arc::new(Mutex::new(Shared::default()));
-    let mut lifecycle = FoundationLifecycle::new(FakeSupervisor::new(shared.clone()));
-    lifecycle.setup().await.unwrap();
+    let shell = Arc::new(ShellLifecycle::new(FakeSupervisor::new(shared.clone())));
+    shell.setup().await.unwrap();
+    let prevented = Arc::new(AtomicBool::new(false));
+    let exited = Arc::new(AtomicBool::new(false));
+    let prevent_signal = prevented.clone();
+    let exit_signal = exited.clone();
 
-    lifecycle.shutdown().await.unwrap();
-    lifecycle.shutdown().await.unwrap();
+    assert!(request_orderly_exit(
+        shell.clone(),
+        move || prevent_signal.store(true, Ordering::SeqCst),
+        move || exit_signal.store(true, Ordering::SeqCst),
+    ));
+    assert!(prevented.load(Ordering::SeqCst));
+    while !exited.load(Ordering::SeqCst) {
+        tokio::task::yield_now().await;
+    }
+    assert!(!request_orderly_exit(shell.clone(), || {}, || {}));
 
     assert_eq!(shared.lock().unwrap().shutdowns, 1);
-    assert_eq!(lifecycle.status().state, "stopped");
+    assert_eq!(shell.status().await.state, "stopped");
 }
 
 #[test]
@@ -146,5 +162,21 @@ fn public_status_dto_contains_no_process_or_transport_identifiers() {
     assert_eq!(
         fields.keys().map(String::as_str).collect::<BTreeSet<_>>(),
         BTreeSet::from(["engine", "sidecar", "state", "uptimeSeconds"])
+    );
+}
+
+#[test]
+fn bundle_resources_land_at_the_production_child_defaults() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let resources = config["bundle"]["resources"].as_object().unwrap();
+
+    assert_eq!(
+        resources["../../../target/x86_64-pc-windows-msvc/release/autodj-live-engine.exe"],
+        "autodj-live-engine.exe"
+    );
+    assert_eq!(
+        resources["../../../.venv/Scripts/python.exe"],
+        "python/python.exe"
     );
 }

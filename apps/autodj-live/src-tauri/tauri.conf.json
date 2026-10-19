@@ -5,7 +5,7 @@
   "identifier": "org.autodj.live",
   "build": {
     "beforeDevCommand": "npm exec vite -- --host 127.0.0.1 --port 1420",
-    "beforeBuildCommand": "npm exec vite build",
+    "beforeBuildCommand": "npm exec vite build && cargo build -p autodj-live-engine --release",
     "devUrl": "http://127.0.0.1:1420",
     "frontendDist": "../dist"
   },
@@ -28,6 +28,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"]
+    "targets": ["nsis"],
+    "resources": {
+      "../../../target/x86_64-pc-windows-msvc/release/autodj-live-engine.exe": "autodj-live-engine.exe",
+      "../../../.venv/Scripts/python.exe": "python/python.exe"
+    }
   }
 }
