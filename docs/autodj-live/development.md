@@ -29,6 +29,11 @@ the application or alter system configuration.
 
 ## Focused checks
 
+`cargo test -p live-audio` checks control-thread device and channel-route
+validation, including separate master/cue paths. This library does not open
+hardware, render audio, publish routes to a callback, or establish ASIO/WASAPI
+support or latency guarantees.
+
 Use the smallest relevant command while iterating, then run the foundation
 gate before handoff:
 
