@@ -58,3 +58,15 @@ The build is an unsigned development NSIS artifact. It stages the Python
 sidecar before Tauri bundles resources. It is not a release claim: signing,
 offline WebView packaging, portable distribution, updates, driver installation,
 and clean-machine installer validation remain release-stage work.
+
+## Fork synchronization
+
+The working fork is `goldfingas/autodj-live` (`origin`); the source repository is
+`blindndangerous/AutoDJ` (`upstream`). Fetch before starting a work session, push
+verified commits to the matching topic branch, and verify that local HEAD and
+its remote-tracking branch agree. Uncommitted work is not backed up by a push.
+
+Keep fork `master` aligned with upstream using fast-forward updates. Integrate
+upstream changes into Live topic branches explicitly and test them; do not
+force-push or automatically merge divergent histories. Continue development on
+topic branches without opening a pull request until the operator requests one.
