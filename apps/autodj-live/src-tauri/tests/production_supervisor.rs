@@ -4,8 +4,8 @@ use std::{
 };
 
 use autodj_live_app::{
-    Component, FoundationLifecycle, ProductionSupervisor, ShellLifecycle, SupervisorBackend,
-    SupervisorRuntime, SupervisorSession, resolve_child_paths,
+    AudioDiscovery, Component, FoundationLifecycle, ProductionSupervisor, ShellLifecycle,
+    SupervisorBackend, SupervisorRuntime, SupervisorSession, resolve_child_paths,
 };
 use autodj_live_supervisor::{
     ChildCommand, LaunchConfig, Protection, RuntimeStore, SupervisorError,
@@ -86,6 +86,14 @@ impl SupervisorSession for Session {
         state.engine_healthy = false;
         state.sidecar_healthy = false;
         Ok(())
+    }
+
+    async fn audio_discovery(&mut self) -> Result<AudioDiscovery, SupervisorError> {
+        Ok(AudioDiscovery {
+            endpoints: vec![],
+            asio_drivers: vec![],
+            issues: vec![],
+        })
     }
 }
 

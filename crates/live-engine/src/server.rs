@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
@@ -7,7 +13,7 @@ use autodj_live_protocol::{
 use subtle::ConstantTimeEq;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{Mutex, watch},
+    sync::{Mutex, oneshot, watch},
     task::JoinSet,
     time::{interval, timeout},
 };
@@ -19,7 +25,48 @@ use crate::{
 };
 
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
+const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(1_500);
 const MAX_CLIENTS: usize = 64;
+
+#[derive(Clone, Default)]
+struct DiscoveryGate(Arc<AtomicBool>);
+
+struct DiscoveryGuard(Arc<AtomicBool>);
+
+impl Drop for DiscoveryGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+impl DiscoveryGate {
+    fn start<F>(
+        &self,
+        operation: F,
+    ) -> Result<oneshot::Receiver<live_audio::discovery::Discovery>, ()>
+    where
+        F: FnOnce() -> live_audio::discovery::Discovery + Send + 'static,
+    {
+        self.0
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| ())?;
+        let active = self.0.clone();
+        let (result, receiver) = oneshot::channel();
+        let spawned = std::thread::Builder::new()
+            .name("live-audio-discovery-request".into())
+            .spawn(move || {
+                let guard = DiscoveryGuard(active);
+                let discovery = operation();
+                drop(guard);
+                let _ = result.send(discovery);
+            });
+        if spawned.is_err() {
+            self.0.store(false, Ordering::Release);
+            return Err(());
+        }
+        Ok(receiver)
+    }
+}
 
 pub async fn run(config: Config) -> Result<(), &'static str> {
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -32,6 +79,7 @@ pub async fn run(config: Config) -> Result<(), &'static str> {
         .port();
     startup::emit_descriptor(port, engine_id)?;
     let state = Arc::new(Mutex::new(Lease::new(engine_id, config.reconnect)));
+    let discovery = DiscoveryGate::default();
     let config = Arc::new(config);
     let (shutdown, _) = watch::channel(false);
     let mut clients = JoinSet::new();
@@ -51,7 +99,7 @@ pub async fn run(config: Config) -> Result<(), &'static str> {
                 let (socket, _) = accepted.map_err(|_| "loopback accept failed")?;
                 if clients.len() >= MAX_CLIENTS { continue; }
                 next_id = next_id.checked_add(1).ok_or("connection identifier exhausted")?;
-                clients.spawn(serve(socket, next_id, engine_id, config.clone(), state.clone(), shutdown.subscribe()));
+                clients.spawn(serve(socket, next_id, engine_id, config.clone(), state.clone(), discovery.clone(), shutdown.subscribe()));
             }
         }
     }
@@ -68,6 +116,7 @@ async fn serve(
     engine_id: Uuid,
     config: Arc<Config>,
     state: Arc<Mutex<Lease>>,
+    discovery: DiscoveryGate,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let hello = tokio::select! {
@@ -120,9 +169,16 @@ async fn serve(
                         Err(event) => event,
                         Ok(()) => {
                             drop(lease);
-                            match tokio::task::spawn_blocking(live_audio::discovery::discover).await {
-                                Ok(discovery) => EngineEvent::AudioDiscovery(map_discovery(discovery)),
-                                Err(_) => EngineEvent::Error { message: "audio discovery failed".into() },
+                            let discovered = match discovery.start(live_audio::discovery::discover) {
+                                Ok(receiver) => Some(timeout(DISCOVERY_TIMEOUT, receiver).await),
+                                Err(()) => None,
+                            };
+                            let still_owner = state.lock().await.authorize_audio_discovery(id);
+                            match (discovered, still_owner) {
+                                (Some(Ok(Ok(discovery))), Ok(())) => EngineEvent::AudioDiscovery(map_discovery(discovery)),
+                                (None, Ok(())) => EngineEvent::Error { message: "audio discovery already in progress".into() },
+                                (_, Err(event)) => event,
+                                _ => EngineEvent::Error { message: "audio discovery failed".into() },
                             }
                         }
                     }
@@ -183,4 +239,44 @@ async fn send<T: serde::Serialize>(socket: &mut TcpStream, message: &T) -> bool 
         timeout(IO_TIMEOUT, FrameCodec::write(socket, message)).await,
         Ok(Ok(()))
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovery_worker_is_single_flight_and_does_not_own_runtime_shutdown() {
+        let gate = DiscoveryGate::default();
+        let (release, wait) = std::sync::mpsc::channel();
+        let first = gate
+            .start(move || {
+                wait.recv().unwrap();
+                live_audio::discovery::Discovery::default()
+            })
+            .unwrap();
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        assert!(
+            runtime
+                .block_on(async { timeout(Duration::from_millis(10), first).await })
+                .is_err()
+        );
+        drop(runtime);
+        assert!(
+            gate.start(live_audio::discovery::Discovery::default)
+                .is_err()
+        );
+        release.send(()).unwrap();
+        while gate.0.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        assert!(
+            gate.start(live_audio::discovery::Discovery::default)
+                .is_ok()
+        );
+    }
 }

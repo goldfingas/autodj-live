@@ -75,12 +75,14 @@ pub struct HealthSnapshot {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AudioDirection {
     Input,
     Output,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AudioEndpointState {
     Active,
     Disabled,
@@ -105,6 +107,7 @@ pub struct AsioRegistration {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AudioDiscovery {
     pub endpoints: Vec<AudioEndpoint>,
     pub asio_drivers: Vec<AsioRegistration>,

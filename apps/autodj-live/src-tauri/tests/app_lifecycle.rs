@@ -7,6 +7,7 @@ use std::{
 };
 
 use autodj_live_app::{
+    AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BackendConnection, BackendHealth, Component, FoundationLifecycle, ShellLifecycle,
     SupervisorBackend, request_orderly_exit,
 };
@@ -18,6 +19,7 @@ struct Shared {
     launches: usize,
     shutdowns: usize,
     retries: Vec<Component>,
+    discovery_requests: usize,
 }
 
 #[derive(Clone)]
@@ -70,6 +72,40 @@ impl SupervisorBackend for FakeSupervisor {
         shared.active_engine = None;
         Ok(())
     }
+
+    async fn audio_discovery(&mut self) -> Result<AudioDiscovery, Component> {
+        self.shared.lock().unwrap().discovery_requests += 1;
+        Ok(AudioDiscovery {
+            endpoints: vec![AudioEndpoint {
+                id: "rane-output".into(),
+                name: "Deck 1 L/R".into(),
+                direction: AudioDirection::Output,
+                state: AudioEndpointState::Active,
+            }],
+            asio_drivers: vec![AsioRegistration {
+                registration: "Rane PERFORMER ASIO".into(),
+                clsid: "{6e9aac96-aeda-4f9a-b222-13ea83facee8}".into(),
+            }],
+            issues: vec![],
+        })
+    }
+}
+
+#[tokio::test]
+async fn audio_discovery_is_user_requested_and_passes_through_engine_data() {
+    let shared = Arc::new(Mutex::new(Shared::default()));
+    let shell = ShellLifecycle::new(FakeSupervisor::new(shared.clone()));
+    shell.setup().await.unwrap();
+    assert_eq!(shared.lock().unwrap().discovery_requests, 0);
+
+    let discovery = shell.audio_discovery().await.unwrap();
+
+    assert_eq!(shared.lock().unwrap().discovery_requests, 1);
+    assert_eq!(discovery.endpoints[0].id, "rane-output");
+    assert_eq!(
+        discovery.asio_drivers[0].registration,
+        "Rane PERFORMER ASIO"
+    );
 }
 
 #[tokio::test]

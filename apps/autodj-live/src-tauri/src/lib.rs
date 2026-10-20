@@ -7,6 +7,9 @@ use std::{
     time::Instant,
 };
 
+pub use autodj_live_protocol::{
+    AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
+};
 use autodj_live_supervisor::{
     ChildCommand, LaunchConfig, LiveSession, LiveSupervisor, RuntimeRecord, RuntimeStore,
     SupervisorError,
@@ -48,6 +51,9 @@ pub trait SupervisorBackend: Send {
         component: Component,
     ) -> impl std::future::Future<Output = Result<BackendHealth, Component>> + Send;
     fn shutdown(&mut self) -> impl std::future::Future<Output = Result<(), Component>> + Send;
+    fn audio_discovery(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<AudioDiscovery, Component>> + Send;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -193,6 +199,13 @@ impl<B: SupervisorBackend> FoundationLifecycle<B> {
         Ok(())
     }
 
+    pub async fn audio_discovery(&mut self) -> Result<AudioDiscovery, Component> {
+        if !self.setup_complete || self.stopped {
+            return Err(Component::Engine);
+        }
+        self.backend.audio_discovery().await
+    }
+
     pub fn status(&self) -> FoundationStatus {
         let mut status = self.status.clone();
         status.uptime_seconds = self.started.elapsed().as_secs();
@@ -251,6 +264,10 @@ impl<B: SupervisorBackend> ShellLifecycle<B> {
         self.lifecycle.lock().await.shutdown().await
     }
 
+    pub async fn audio_discovery(&self) -> Result<AudioDiscovery, Component> {
+        self.lifecycle.lock().await.audio_discovery().await
+    }
+
     pub fn claim_exit(&self) -> bool {
         !self.exiting.swap(true, Ordering::SeqCst)
     }
@@ -296,6 +313,9 @@ pub trait SupervisorSession: Send {
         &mut self,
     ) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
     fn shutdown(self) -> impl std::future::Future<Output = Result<(), SupervisorError>> + Send;
+    fn audio_discovery(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<AudioDiscovery, SupervisorError>> + Send;
 }
 
 impl SupervisorSession for LiveSession {
@@ -321,6 +341,10 @@ impl SupervisorSession for LiveSession {
 
     async fn shutdown(self) -> Result<(), SupervisorError> {
         LiveSession::shutdown(self).await
+    }
+
+    async fn audio_discovery(&mut self) -> Result<AudioDiscovery, SupervisorError> {
+        LiveSession::audio_discovery(self).await
     }
 }
 
@@ -499,6 +523,15 @@ impl<R: SupervisorRuntime> SupervisorBackend for ProductionSupervisor<R> {
         }
         Ok(())
     }
+
+    async fn audio_discovery(&mut self) -> Result<AudioDiscovery, Component> {
+        self.session
+            .as_mut()
+            .ok_or(Component::Engine)?
+            .audio_discovery()
+            .await
+            .map_err(|_| Component::Engine)
+    }
 }
 
 type AppState = ShellLifecycle<ProductionSupervisor>;
@@ -523,12 +556,18 @@ async fn shutdown_live(state: tauri::State<'_, Arc<AppState>>) -> Result<(), ()>
     state.shutdown().await.map_err(|_| ())
 }
 
+#[tauri::command]
+async fn get_audio_discovery(state: tauri::State<'_, Arc<AppState>>) -> Result<AudioDiscovery, ()> {
+    state.audio_discovery().await.map_err(|_| ())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             get_foundation_status,
             retry_component,
-            shutdown_live
+            shutdown_live,
+            get_audio_discovery
         ])
         .setup(|app| {
             let resource_dir = app.path().resource_dir()?;

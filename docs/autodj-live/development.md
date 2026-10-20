@@ -39,7 +39,15 @@ This diagnostic opens no streams and loads no ASIO driver. All capabilities
 remain unprobed. It includes disconnected/disabled endpoints and preserves
 partial results when metadata fails; exit status 1 means one or more discovery
 issues were reported, not necessarily that the entire inventory failed.
-It is a developer diagnostic, not yet exposed through the desktop setup UI.
+The command-line form remains useful as a developer diagnostic.
+
+The desktop Setup section exposes the same read-only inventory through the
+authenticated Live engine. It performs no automatic scan: activate **Refresh
+audio devices** to replace the current list. Endpoint availability and ASIO
+registration are inventory only; no item is selectable and no capabilities,
+channel layout, or latency are implied. The IPC wait is bounded; a stalled scan
+may continue outside the async runtime and blocks further scans until it exits.
+Partial metadata issues remain visible without discarding healthy entries.
 
 `cargo test -p live-audio` checks control-thread device and channel-route
 validation, including separate master/cue paths. This library does not open
