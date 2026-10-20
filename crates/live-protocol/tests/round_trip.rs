@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use autodj_live_protocol::{
+    AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec, HealthSnapshot,
     ProtocolError, ProtocolVersion, ServerHello,
 };
@@ -59,6 +60,7 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
 
     let commands = [
         EngineCommand::Health,
+        EngineCommand::DiscoverAudio,
         EngineCommand::Attach {
             supervisor_generation: 7,
         },
@@ -83,6 +85,19 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
         EngineEvent::Error {
             message: "lease expired".to_owned(),
         },
+        EngineEvent::AudioDiscovery(AudioDiscovery {
+            endpoints: vec![AudioEndpoint {
+                id: "endpoint-1".into(),
+                name: "Deck 1 L/R".into(),
+                direction: AudioDirection::Output,
+                state: AudioEndpointState::Active,
+            }],
+            asio_drivers: vec![AsioRegistration {
+                registration: "Rane PERFORMER ASIO".into(),
+                clsid: "{6e9aac96-aeda-4f9a-b222-13ea83facee8}".into(),
+            }],
+            issues: vec!["stale endpoint name unavailable".into()],
+        }),
     ];
     for event in events {
         assert_framed_round_trip(&event).await;

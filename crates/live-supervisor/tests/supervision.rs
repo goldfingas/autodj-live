@@ -76,6 +76,28 @@ async fn one_secret_pair_authenticates_both_children_and_normal_shutdown_reaps_t
 }
 
 #[tokio::test]
+async fn active_supervisor_receives_engine_owned_audio_inventory() {
+    let config = config();
+    let mut session = LiveSupervisor::launch(config).await.unwrap();
+
+    let discovery = session.audio_discovery().await.unwrap();
+
+    assert!(
+        discovery
+            .endpoints
+            .iter()
+            .all(|endpoint| !endpoint.id.is_empty())
+    );
+    assert!(
+        discovery
+            .asio_drivers
+            .iter()
+            .all(|driver| !driver.registration.is_empty() && !driver.clsid.is_empty())
+    );
+    session.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn malformed_noisy_oversized_and_missing_descriptors_reap_child_with_fixed_errors() {
     for (mode, expected) in [
         ("malformed", SupervisorError::InvalidDescriptor),

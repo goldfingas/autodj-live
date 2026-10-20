@@ -74,9 +74,47 @@ pub struct HealthSnapshot {
     pub extensions: BTreeMap<String, rmpv::Value>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum AudioDirection {
+    Input,
+    Output,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum AudioEndpointState {
+    Active,
+    Disabled,
+    NotPresent,
+    Unplugged,
+    Unknown(u32),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AudioEndpoint {
+    pub id: String,
+    pub name: String,
+    pub direction: AudioDirection,
+    pub state: AudioEndpointState,
+}
+
+/// A registry entry only; this does not assert driver or hardware usability.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AsioRegistration {
+    pub registration: String,
+    pub clsid: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AudioDiscovery {
+    pub endpoints: Vec<AudioEndpoint>,
+    pub asio_drivers: Vec<AsioRegistration>,
+    pub issues: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum EngineCommand {
     Health,
+    DiscoverAudio,
     Attach { supervisor_generation: u64 },
     Detach,
     Shutdown,
@@ -86,6 +124,7 @@ pub enum EngineCommand {
 pub enum EngineEvent {
     Attached,
     Health(HealthSnapshot),
+    AudioDiscovery(AudioDiscovery),
     Stopping,
     Error { message: String },
 }

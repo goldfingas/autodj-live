@@ -1,8 +1,8 @@
 use std::{os::windows::io::OwnedHandle, time::Duration};
 
 use autodj_live_protocol::{
-    BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec, HealthSnapshot,
-    ProtocolVersion, ServerHello,
+    AudioDiscovery, BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec,
+    HealthSnapshot, ProtocolVersion, ServerHello,
 };
 use serde::Deserialize;
 use tokio::{
@@ -287,6 +287,12 @@ impl LiveSession {
             return Err(SupervisorError::Connection);
         }
         health(&mut self.socket).await
+    }
+    pub async fn audio_discovery(&mut self) -> Result<AudioDiscovery, SupervisorError> {
+        match request(&mut self.socket, EngineCommand::DiscoverAudio).await? {
+            EngineEvent::AudioDiscovery(discovery) => Ok(discovery),
+            _ => Err(SupervisorError::Rejected),
+        }
     }
     pub async fn sidecar_healthy(&self) -> Result<bool, SupervisorError> {
         sidecar_health(&self.sidecar, &self.token, self.record.session_id)

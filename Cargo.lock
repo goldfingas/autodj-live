@@ -100,6 +100,7 @@ name = "autodj-live-engine"
 version = "0.1.0"
 dependencies = [
  "autodj-live-protocol",
+ "live-audio",
  "serde",
  "serde_json",
  "subtle",

@@ -1,6 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use autodj_live_protocol::{ClientHello, EngineEvent, FrameCodec, ProtocolVersion, ServerHello};
+use autodj_live_protocol::{
+    AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
+    ClientHello, EngineCommand, EngineEvent, FrameCodec, ProtocolVersion, ServerHello,
+};
 use subtle::ConstantTimeEq;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -112,7 +115,20 @@ async fn serve(
                 let mut lease = state.lock().await;
                 // Replacement may race a ready command; a revoked socket cannot reattach.
                 if *replacement.borrow() { break; }
-                lease.command(id, &replaced, command)
+                if matches!(command, EngineCommand::DiscoverAudio) {
+                    match lease.authorize_audio_discovery(id) {
+                        Err(event) => event,
+                        Ok(()) => {
+                            drop(lease);
+                            match tokio::task::spawn_blocking(live_audio::discovery::discover).await {
+                                Ok(discovery) => EngineEvent::AudioDiscovery(map_discovery(discovery)),
+                                Err(_) => EngineEvent::Error { message: "audio discovery failed".into() },
+                            }
+                        }
+                    }
+                } else {
+                    lease.command(id, &replaced, command)
+                }
             }
         };
         let stopping = matches!(event, EngineEvent::Stopping);
@@ -121,6 +137,45 @@ async fn serve(
         }
     }
     state.lock().await.disconnect(id);
+}
+
+fn map_discovery(discovery: live_audio::discovery::Discovery) -> AudioDiscovery {
+    AudioDiscovery {
+        endpoints: discovery
+            .endpoints
+            .into_iter()
+            .map(|endpoint| AudioEndpoint {
+                id: endpoint.id,
+                name: endpoint.name,
+                direction: match endpoint.direction {
+                    live_audio::discovery::Direction::Input => AudioDirection::Input,
+                    live_audio::discovery::Direction::Output => AudioDirection::Output,
+                },
+                state: match endpoint.state {
+                    live_audio::discovery::EndpointState::Active => AudioEndpointState::Active,
+                    live_audio::discovery::EndpointState::Disabled => AudioEndpointState::Disabled,
+                    live_audio::discovery::EndpointState::NotPresent => {
+                        AudioEndpointState::NotPresent
+                    }
+                    live_audio::discovery::EndpointState::Unplugged => {
+                        AudioEndpointState::Unplugged
+                    }
+                    live_audio::discovery::EndpointState::Unknown(value) => {
+                        AudioEndpointState::Unknown(value)
+                    }
+                },
+            })
+            .collect(),
+        asio_drivers: discovery
+            .asio_drivers
+            .into_iter()
+            .map(|driver| AsioRegistration {
+                registration: driver.registration,
+                clsid: driver.clsid,
+            })
+            .collect(),
+        issues: discovery.issues,
+    }
 }
 
 async fn send<T: serde::Serialize>(socket: &mut TcpStream, message: &T) -> bool {

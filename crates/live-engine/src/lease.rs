@@ -80,6 +80,10 @@ impl Lease {
         }
         match command {
             EngineCommand::Health => EngineEvent::Health(self.health()),
+            EngineCommand::DiscoverAudio => match self.authorize_audio_discovery(id) {
+                Ok(()) => error("audio discovery must be dispatched by the engine server"),
+                Err(event) => event,
+            },
             EngineCommand::Attach {
                 supervisor_generation,
             } => {
@@ -113,6 +117,14 @@ impl Lease {
             }
         }
     }
+
+    pub fn authorize_audio_discovery(&self, id: u64) -> Result<(), EngineEvent> {
+        if self.owner.as_ref().is_some_and(|(owner, _)| *owner == id) {
+            Ok(())
+        } else {
+            Err(error("audio discovery requires the active supervisor"))
+        }
+    }
 }
 
 /// Windows uptime is monotonic and comparable by the separate supervisor.
@@ -126,5 +138,35 @@ fn monotonic_ns() -> u64 {
 fn error(message: &str) -> EngineEvent {
     EngineEvent::Error {
         message: message.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_active_owner_may_request_audio_discovery() {
+        let mut lease = Lease::new(Uuid::new_v4(), Duration::from_secs(30));
+        let (owner_signal, _) = watch::channel(false);
+        let (stranger_signal, _) = watch::channel(false);
+        assert_eq!(
+            lease.command(
+                7,
+                &owner_signal,
+                EngineCommand::Attach {
+                    supervisor_generation: 1
+                }
+            ),
+            EngineEvent::Attached
+        );
+        assert!(lease.authorize_audio_discovery(7).is_ok());
+        assert!(lease.authorize_audio_discovery(8).is_err());
+        assert_eq!(
+            lease.command(8, &stranger_signal, EngineCommand::DiscoverAudio),
+            EngineEvent::Error {
+                message: "audio discovery requires the active supervisor".into()
+            }
+        );
     }
 }
