@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/live-audio",
     "crates/live-protocol",
     "crates/live-engine",
     "crates/live-supervisor",

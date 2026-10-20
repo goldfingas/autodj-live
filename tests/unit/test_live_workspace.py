@@ -59,6 +59,7 @@ def test_live_workspace_pins_toolchain_and_keeps_python_package_optional() -> No
     pyproject = _toml("pyproject.toml")
 
     assert cargo["workspace"]["members"] == [
+        "crates/live-audio",
         "crates/live-protocol",
         "crates/live-engine",
         "crates/live-supervisor",
