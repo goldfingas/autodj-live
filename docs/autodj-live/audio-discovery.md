@@ -56,3 +56,24 @@ The x64 application must not offer a 32-bit-only driver as loadable.
 Backend selection remains open between direct Windows/SDK integration and
 an existing Rust host library. Prefer reuse only where the actual APIs satisfy
 the required modes and channel control. No new dependency is selected here.
+
+## Implemented inventory and local exercise
+
+`cargo run -p live-audio --example discover` now reads Windows endpoint metadata
+and x64 ASIO registration with the already-locked Windows bindings. This is
+not a selection of the future rendering backend.
+
+The 2026-10-20 reference run returned 61 endpoints and 9 ASIO registrations,
+including 13 Rane endpoints and its ASIO registration. Twelve stale,
+not-present endpoints had unavailable display names (`0xE000020B`); they were
+retained using their IDs and the errors were reported. The diagnostic exited
+1 to signal partial metadata, not a total enumeration failure.
+
+Registry validation applies to the buffer returned by Windows.
+[RegGetValueW](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-reggetvaluew)
+can add a missing string terminator; this normalization is accepted. Empty,
+embedded-NUL, invalid-Unicode and invalid-GUID results are rejected. This is
+not a raw registry corruption audit.
+
+No desktop UI/IPC hookup, capability probing, ASIO initialization, or playback
+is included. No physical channel routing or latency is certified by inventory.

@@ -29,6 +29,18 @@ the application or alter system configuration.
 
 ## Focused checks
 
+Read-only Windows endpoint and x64 ASIO registration inventory:
+
+```powershell
+cargo run -p live-audio --example discover
+```
+
+This diagnostic opens no streams and loads no ASIO driver. All capabilities
+remain unprobed. It includes disconnected/disabled endpoints and preserves
+partial results when metadata fails; exit status 1 means one or more discovery
+issues were reported, not necessarily that the entire inventory failed.
+It is a developer diagnostic, not yet exposed through the desktop setup UI.
+
 `cargo test -p live-audio` checks control-thread device and channel-route
 validation, including separate master/cue paths. This library does not open
 hardware, render audio, publish routes to a callback, or establish ASIO/WASAPI
