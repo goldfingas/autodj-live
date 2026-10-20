@@ -7,6 +7,8 @@ import json
 import tomllib
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -142,6 +144,26 @@ def test_ci_has_windows_live_gate() -> None:
         assert command in live_job
     assert "AUTODJ_PYTEST_WORKERS" not in live_job
     assert "os: [ubuntu-latest, windows-latest]" in workflow
+
+
+def test_windows_live_checks_cannot_hide_an_earlier_native_failure() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["live-windows"]["steps"]
+    required = {
+        "uv sync --frozen --all-extras",
+        "npm ci --ignore-scripts",
+        "cargo fmt --check",
+        "cargo clippy --workspace --all-targets -- -D warnings",
+        "cargo test --workspace",
+        "npm --workspace @autodj/live test",
+        "npm --workspace @autodj/live run lint",
+    }
+    # The Windows runner propagates the last native exit code in each step.
+    # Each required command must therefore own a step and its failure status.
+    for command in required:
+        matches = [step for step in steps if step.get("run", "").strip() == command]
+        assert len(matches) == 1, f"{command} must run in its own step"
+        assert not matches[0].get("continue-on-error", False)
 
 
 def test_live_bundle_stages_a_complete_locked_python_runtime() -> None:

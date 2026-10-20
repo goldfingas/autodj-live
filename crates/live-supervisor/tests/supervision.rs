@@ -178,3 +178,40 @@ async fn bundled_python_sidecar_authenticates_and_all_redirector_processes_exit(
     exited(identity.sidecar_pid).await;
     exited(identity.pid).await;
 }
+
+#[test]
+fn bundled_python_ignores_hostile_python_environment() {
+    let hostile = directory();
+    let package = hostile.join("autodj");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(
+        package.join("__init__.py"),
+        "raise RuntimeError('hostile import')",
+    )
+    .unwrap();
+    for hostile_home in [false, true] {
+        // A separate test process avoids changing this parallel runner's environment.
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "bundled_python_sidecar_authenticates_and_all_redirector_processes_exit",
+                "--nocapture",
+            ])
+            .current_dir(&hostile)
+            .env("PYTHONPATH", &hostile)
+            .env_remove("PYTHONHOME");
+        if hostile_home {
+            command.env("PYTHONHOME", &hostile);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+            "bundled sidecar must ignore hostile Python environment (PYTHONHOME={hostile_home}): {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+    std::fs::remove_dir_all(hostile).unwrap();
+}

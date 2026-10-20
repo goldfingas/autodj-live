@@ -4,8 +4,8 @@ use std::{
 };
 
 use autodj_live_app::{
-    Component, FoundationLifecycle, ProductionSupervisor, SupervisorBackend, SupervisorRuntime,
-    SupervisorSession, resolve_child_paths,
+    Component, FoundationLifecycle, ProductionSupervisor, ShellLifecycle, SupervisorBackend,
+    SupervisorRuntime, SupervisorSession, resolve_child_paths,
 };
 use autodj_live_supervisor::{
     ChildCommand, LaunchConfig, Protection, RuntimeStore, SupervisorError,
@@ -198,6 +198,26 @@ async fn reconnect_launches_after_task6_stale_but_not_other_reattach_errors() {
     assert_eq!(lifecycle.status().sidecar, "ready");
     assert_eq!(rejected.lock().unwrap().reattachments, 1);
     assert_eq!(rejected.lock().unwrap().launches, 0);
+}
+
+#[tokio::test]
+async fn retry_after_failed_setup_restores_health_polling_and_engine_identity() {
+    let state = Arc::new(Mutex::new(State {
+        reject_launch: true,
+        ..State::default()
+    }));
+    let shell = ShellLifecycle::new(backend(state.clone()));
+    assert_eq!(shell.setup().await, Err(Component::Engine));
+    state.lock().unwrap().reject_launch = false;
+    assert_eq!(shell.retry(Component::Engine).await.unwrap().state, "ready");
+
+    state.lock().unwrap().sidecar_healthy = false;
+    let status = shell.status().await;
+    assert_eq!(status.sidecar, "failed");
+    assert_eq!(status.engine, "ready");
+    assert_eq!(status.state, "degraded");
+    assert_eq!(shell.engine_id().await, state.lock().unwrap().engine_id);
+    shell.shutdown().await.unwrap();
 }
 
 #[tokio::test]

@@ -70,6 +70,7 @@ impl ChildCommand {
     pub fn bundled_python(executable: PathBuf) -> Self {
         Self::new(executable).args(
             [
+                "-I",
                 "-m",
                 "autodj",
                 "_live-sidecar",

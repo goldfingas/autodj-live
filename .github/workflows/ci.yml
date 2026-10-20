@@ -184,21 +184,22 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
-      - name: Install locked dependencies
-        run: |
-          uv sync --frozen --all-extras
-          npm ci --ignore-scripts
+      - name: Install locked Python dependencies
+        run: uv sync --frozen --all-extras
+      - name: Install locked Node dependencies
+        run: npm ci --ignore-scripts
       - name: Validate architecture documentation
         run: uv run --frozen --no-sync python scripts/check_architecture_docs.py
-      - name: Check Rust workspace
-        run: |
-          cargo fmt --check
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace
-      - name: Check Live UI
-        run: |
-          npm --workspace @autodj/live test
-          npm --workspace @autodj/live run lint
+      - name: Check Rust formatting
+        run: cargo fmt --check
+      - name: Lint Rust workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test Rust workspace
+        run: cargo test --workspace
+      - name: Test Live UI
+        run: npm --workspace @autodj/live test
+      - name: Lint Live UI
+        run: npm --workspace @autodj/live run lint
       - name: Check Live sidecar
         run: uv run pytest --no-cov tests/unit/test_live_sidecar.py tests/integration/test_live_sidecar_process.py --junitxml=target/live-sidecar-pytest.xml
       - name: Build unsigned development bundle

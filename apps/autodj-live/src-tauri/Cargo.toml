@@ -15,12 +15,12 @@ path = "src/main.rs"
 [dependencies]
 autodj-live-supervisor = { path = "../../../crates/live-supervisor" }
 serde = { version = "1.0", features = ["derive"] }
-tauri = "=2.12.4"
+tauri = { version = "=2.12.4", features = [] }
 tokio = { version = "1.48.0", features = ["macros", "rt", "sync", "time"] }
 uuid = { version = "1.18.1", features = ["serde"] }
 
 [build-dependencies]
-tauri-build = "=2.7.3"
+tauri-build = { version = "=2.7.3", features = [] }
 
 [dev-dependencies]
 serde_json = "1.0"

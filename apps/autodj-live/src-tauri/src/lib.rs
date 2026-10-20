@@ -163,6 +163,9 @@ impl<B: SupervisorBackend> FoundationLifecycle<B> {
     }
 
     pub async fn retry(&mut self, component: Component) -> Result<(), Component> {
+        if !self.setup_complete {
+            return self.setup().await;
+        }
         match self.backend.retry(component).await {
             Ok(health) => {
                 self.status = FoundationStatus::from_health(health);
