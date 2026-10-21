@@ -80,10 +80,12 @@ impl Lease {
         }
         match command {
             EngineCommand::Health => EngineEvent::Health(self.health()),
-            EngineCommand::DiscoverAudio => match self.authorize_audio_discovery(id) {
-                Ok(()) => error("audio discovery must be dispatched by the engine server"),
-                Err(event) => event,
-            },
+            EngineCommand::DiscoverAudio | EngineCommand::ProbeWasapi { .. } => {
+                match self.authorize_audio_operation(id) {
+                    Ok(()) => error("audio operation must be dispatched by the engine server"),
+                    Err(event) => event,
+                }
+            }
             EngineCommand::Attach {
                 supervisor_generation,
             } => {
@@ -118,11 +120,11 @@ impl Lease {
         }
     }
 
-    pub fn authorize_audio_discovery(&self, id: u64) -> Result<(), EngineEvent> {
+    pub fn authorize_audio_operation(&self, id: u64) -> Result<(), EngineEvent> {
         if self.owner.as_ref().is_some_and(|(owner, _)| *owner == id) {
             Ok(())
         } else {
-            Err(error("audio discovery requires the active supervisor"))
+            Err(error("audio operation requires the active supervisor"))
         }
     }
 }
@@ -146,7 +148,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_active_owner_may_request_audio_discovery() {
+    fn only_the_active_owner_may_request_audio_operations() {
         let mut lease = Lease::new(Uuid::new_v4(), Duration::from_secs(30));
         let (owner_signal, _) = watch::channel(false);
         let (stranger_signal, _) = watch::channel(false);
@@ -160,12 +162,24 @@ mod tests {
             ),
             EngineEvent::Attached
         );
-        assert!(lease.authorize_audio_discovery(7).is_ok());
-        assert!(lease.authorize_audio_discovery(8).is_err());
+        assert!(lease.authorize_audio_operation(7).is_ok());
+        assert!(lease.authorize_audio_operation(8).is_err());
         assert_eq!(
             lease.command(8, &stranger_signal, EngineCommand::DiscoverAudio),
             EngineEvent::Error {
-                message: "audio discovery requires the active supervisor".into()
+                message: "audio operation requires the active supervisor".into()
+            }
+        );
+        assert_eq!(
+            lease.command(
+                8,
+                &stranger_signal,
+                EngineCommand::ProbeWasapi {
+                    endpoint_id: "endpoint-1".into()
+                }
+            ),
+            EngineEvent::Error {
+                message: "audio operation requires the active supervisor".into()
             }
         );
     }

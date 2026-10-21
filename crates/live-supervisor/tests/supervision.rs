@@ -98,6 +98,30 @@ async fn active_supervisor_receives_engine_owned_audio_inventory() {
 }
 
 #[tokio::test]
+async fn active_supervisor_can_probe_an_active_wasapi_endpoint() {
+    let config = config();
+    let mut session = LiveSupervisor::launch(config).await.unwrap();
+    let discovery = session.audio_discovery().await.unwrap();
+    if let Some(endpoint) = discovery
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.state == autodj_live_protocol::AudioEndpointState::Active)
+    {
+        let capabilities = session.probe_wasapi(&endpoint.id).await.unwrap();
+        assert_eq!(capabilities.endpoint_id, endpoint.id);
+        assert!(capabilities.channels > 0);
+        assert!(capabilities.sample_rate_hz > 0);
+        assert!(capabilities.bits_per_sample > 0);
+        assert!(capabilities.default_period_100ns >= capabilities.minimum_period_100ns);
+    }
+    assert_eq!(
+        session.probe_wasapi("missing-endpoint").await,
+        Err(SupervisorError::Rejected)
+    );
+    session.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn malformed_noisy_oversized_and_missing_descriptors_reap_child_with_fixed_errors() {
     for (mode, expected) in [
         ("malformed", SupervisorError::InvalidDescriptor),

@@ -4,8 +4,8 @@ use ::windows::{
         Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS},
         Media::Audio::{
-            DEVICE_STATE, DEVICE_STATEMASK_ALL, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
-            eCapture, eRender,
+            DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IMMDevice,
+            IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eRender,
         },
         System::{
             Com::{
@@ -24,6 +24,13 @@ impl Drop for ComApartment {
     fn drop(&mut self) {
         // Constructed only after successful initialization on this same thread.
         unsafe { CoUninitialize() };
+    }
+}
+
+struct TaskMemory(*mut std::ffi::c_void);
+impl Drop for TaskMemory {
+    fn drop(&mut self) {
+        unsafe { CoTaskMemFree(Some(self.0)) };
     }
 }
 
@@ -71,6 +78,44 @@ pub(super) fn discover() -> Discovery {
             .push(format!("64-bit ASIO registration enumeration: {error}"));
     }
     result
+}
+
+pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'static str> {
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok() }
+        .map_err(|_| "could not initialize WASAPI probe")?;
+    let _apartment = ComApartment;
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|_| "could not create WASAPI endpoint enumerator")?;
+    let wide: Vec<u16> = endpoint_id.encode_utf16().chain(Some(0)).collect();
+    let device = unsafe { enumerator.GetDevice(PCWSTR(wide.as_ptr())) }
+        .map_err(|_| "WASAPI endpoint is unavailable")?;
+    if unsafe { device.GetState() }.map_err(|_| "could not read WASAPI endpoint state")?
+        != DEVICE_STATE_ACTIVE
+    {
+        return Err("WASAPI endpoint is not active");
+    }
+    let client: IAudioClient = unsafe { device.Activate(CLSCTX_INPROC_SERVER, None) }
+        .map_err(|_| "could not activate WASAPI endpoint")?;
+    let format_ptr =
+        unsafe { client.GetMixFormat() }.map_err(|_| "could not read WASAPI shared mix format")?;
+    if format_ptr.is_null() {
+        return Err("WASAPI returned no shared mix format");
+    }
+    let _format_memory = TaskMemory(format_ptr.cast());
+    let format = unsafe { format_ptr.read_unaligned() };
+    let mut default_period = 0;
+    let mut minimum_period = 0;
+    unsafe { client.GetDevicePeriod(Some(&mut default_period), Some(&mut minimum_period)) }
+        .map_err(|_| "could not read WASAPI engine periods")?;
+    wasapi_capabilities(
+        endpoint_id.to_owned(),
+        format.nChannels,
+        format.nSamplesPerSec,
+        format.wBitsPerSample,
+        default_period,
+        minimum_period,
+    )
 }
 
 fn endpoints(result: &mut Discovery) -> ::windows::core::Result<()> {

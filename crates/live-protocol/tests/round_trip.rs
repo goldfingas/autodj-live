@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec, HealthSnapshot,
-    ProtocolError, ProtocolVersion, ServerHello,
+    ProtocolError, ProtocolVersion, ServerHello, WasapiCapabilities,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::AsyncWriteExt;
@@ -61,6 +61,9 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
     let commands = [
         EngineCommand::Health,
         EngineCommand::DiscoverAudio,
+        EngineCommand::ProbeWasapi {
+            endpoint_id: "endpoint-1".into(),
+        },
         EngineCommand::Attach {
             supervisor_generation: 7,
         },
@@ -97,6 +100,14 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
                 clsid: "{6e9aac96-aeda-4f9a-b222-13ea83facee8}".into(),
             }],
             issues: vec!["stale endpoint name unavailable".into()],
+        }),
+        EngineEvent::WasapiCapabilities(WasapiCapabilities {
+            endpoint_id: "endpoint-1".into(),
+            channels: 8,
+            sample_rate_hz: 48_000,
+            bits_per_sample: 32,
+            default_period_100ns: 100_000,
+            minimum_period_100ns: 30_000,
         }),
     ];
     for event in events {

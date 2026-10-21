@@ -32,6 +32,16 @@ pub struct AsioRegistration {
     pub clsid: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WasapiCapabilities {
+    pub endpoint_id: String,
+    pub channels: u16,
+    pub sample_rate_hz: u32,
+    pub bits_per_sample: u16,
+    pub default_period_100ns: u64,
+    pub minimum_period_100ns: u64,
+}
+
 #[derive(Debug, Default)]
 pub struct Discovery {
     pub endpoints: Vec<Endpoint>,
@@ -80,6 +90,45 @@ pub fn discover() -> Discovery {
             ..Discovery::default()
         },
     }
+}
+
+/// Blocking, control-thread probe of the WASAPI shared engine. No stream is initialized.
+pub fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'static str> {
+    let endpoint_id = endpoint_id.to_owned();
+    std::thread::Builder::new()
+        .name("live-audio-wasapi-probe".into())
+        .spawn(move || windows::probe_wasapi(&endpoint_id))
+        .map_err(|_| "could not start WASAPI probe")?
+        .join()
+        .map_err(|_| "WASAPI probe worker panicked")?
+}
+
+fn wasapi_capabilities(
+    endpoint_id: String,
+    channels: u16,
+    sample_rate_hz: u32,
+    bits_per_sample: u16,
+    default_period_100ns: i64,
+    minimum_period_100ns: i64,
+) -> Result<WasapiCapabilities, &'static str> {
+    if endpoint_id.is_empty()
+        || channels == 0
+        || sample_rate_hz == 0
+        || bits_per_sample == 0
+        || default_period_100ns < 0
+        || minimum_period_100ns < 0
+        || minimum_period_100ns > default_period_100ns
+    {
+        return Err("WASAPI returned invalid capabilities");
+    }
+    Ok(WasapiCapabilities {
+        endpoint_id,
+        channels,
+        sample_rate_hz,
+        bits_per_sample,
+        default_period_100ns: default_period_100ns as u64,
+        minimum_period_100ns: minimum_period_100ns as u64,
+    })
 }
 
 fn endpoint_state(state: u32) -> EndpointState {
@@ -168,5 +217,31 @@ mod tests {
             "Speakers"
         );
         assert_eq!(issues.len(), 2);
+    }
+
+    #[test]
+    fn wasapi_capabilities_require_a_real_format_and_nonnegative_periods() {
+        assert_eq!(
+            wasapi_capabilities("endpoint-1".into(), 8, 48_000, 32, 100_000, 30_000).unwrap(),
+            WasapiCapabilities {
+                endpoint_id: "endpoint-1".into(),
+                channels: 8,
+                sample_rate_hz: 48_000,
+                bits_per_sample: 32,
+                default_period_100ns: 100_000,
+                minimum_period_100ns: 30_000,
+            }
+        );
+
+        for malformed in [
+            wasapi_capabilities("id".into(), 0, 48_000, 32, 1, 1),
+            wasapi_capabilities("id".into(), 2, 0, 32, 1, 1),
+            wasapi_capabilities("id".into(), 2, 48_000, 0, 1, 1),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, -1, 1),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, -1),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, 2),
+        ] {
+            assert!(malformed.is_err());
+        }
     }
 }

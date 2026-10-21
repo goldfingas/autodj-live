@@ -2,7 +2,7 @@ use std::{os::windows::io::OwnedHandle, time::Duration};
 
 use autodj_live_protocol::{
     AudioDiscovery, BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec,
-    HealthSnapshot, ProtocolVersion, ServerHello,
+    HealthSnapshot, ProtocolVersion, ServerHello, WasapiCapabilities,
 };
 use serde::Deserialize;
 use tokio::{
@@ -291,6 +291,22 @@ impl LiveSession {
     pub async fn audio_discovery(&mut self) -> Result<AudioDiscovery, SupervisorError> {
         match request(&mut self.socket, EngineCommand::DiscoverAudio).await? {
             EngineEvent::AudioDiscovery(discovery) => Ok(discovery),
+            _ => Err(SupervisorError::Rejected),
+        }
+    }
+    pub async fn probe_wasapi(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiCapabilities, SupervisorError> {
+        match request(
+            &mut self.socket,
+            EngineCommand::ProbeWasapi {
+                endpoint_id: endpoint_id.to_owned(),
+            },
+        )
+        .await?
+        {
+            EngineEvent::WasapiCapabilities(capabilities) => Ok(capabilities),
             _ => Err(SupervisorError::Rejected),
         }
     }

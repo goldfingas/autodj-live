@@ -115,9 +115,21 @@ pub struct AudioDiscovery {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasapiCapabilities {
+    pub endpoint_id: String,
+    pub channels: u16,
+    pub sample_rate_hz: u32,
+    pub bits_per_sample: u16,
+    pub default_period_100ns: u64,
+    pub minimum_period_100ns: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum EngineCommand {
     Health,
     DiscoverAudio,
+    ProbeWasapi { endpoint_id: String },
     Attach { supervisor_generation: u64 },
     Detach,
     Shutdown,
@@ -128,6 +140,7 @@ pub enum EngineEvent {
     Attached,
     Health(HealthSnapshot),
     AudioDiscovery(AudioDiscovery),
+    WasapiCapabilities(WasapiCapabilities),
     Stopping,
     Error { message: String },
 }
