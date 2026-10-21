@@ -42,27 +42,27 @@
 - Consumes: the validated pointer returned by `IAudioClient::GetMixFormat`.
 - Produces: `WasapiCapabilities::exclusive_shared_mix_supported: bool` in audio and protocol models.
 
-- [ ] **Step 1: Write failing Rust tests**
+- [x] **Step 1: Write failing Rust tests**
 
 Add assertions showing the capability model and protocol round trip retain both `true` and `false`, and isolate HRESULT classification so `S_OK` is supported, `AUDCLNT_E_UNSUPPORTED_FORMAT` is unsupported, and an unexpected failure is an error.
 
-- [ ] **Step 2: Run targeted tests and verify they fail**
+- [x] **Step 2: Run targeted tests and verify they fail**
 
 Run: `cargo test -p autodj-live-audio -p autodj-live-protocol`
 
 Expected: FAIL because the new field and HRESULT classifier do not exist.
 
-- [ ] **Step 3: Implement the minimal native probe and transport mapping**
+- [x] **Step 3: Implement the minimal native probe and transport mapping**
 
 After existing format validation, call `IAudioClient::IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, format_ptr, None)`. Add the boolean to `wasapi_capabilities(...)`, both structs, engine mapping, and all fixtures; map only the documented unsupported-format HRESULT to `false` and return a static generic error for other failures.
 
-- [ ] **Step 4: Run targeted Rust checks**
+- [x] **Step 4: Run targeted Rust checks**
 
 Run: `cargo test -p autodj-live-audio -p autodj-live-protocol -p autodj-live-engine -p autodj-live-supervisor -p autodj-live`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message: `feat: probe exact WASAPI exclusive format`
 
@@ -76,27 +76,27 @@ Commit message: `feat: probe exact WASAPI exclusive format`
 - Consumes: camelCase `exclusiveSharedMixSupported: boolean` from the existing Tauri command.
 - Produces: explicit supported/not-supported copy scoped to the exact displayed shared-mix format.
 
-- [ ] **Step 1: Write failing UI tests**
+- [x] **Step 1: Write failing UI tests**
 
 Assert both boolean states render as exact-format evidence and retain “other exclusive formats and ASIO untested” language.
 
-- [ ] **Step 2: Run the focused UI test and verify it fails**
+- [x] **Step 2: Run the focused UI test and verify it fails**
 
 Run: `npm --prefix apps/autodj-live test -- --run src/setup.test.ts`
 
 Expected: FAIL because the type and label do not expose the new result.
 
-- [ ] **Step 3: Implement the minimal label and fixture updates**
+- [x] **Step 3: Implement the minimal label and fixture updates**
 
 Add the field to the TypeScript interface and append one sentence that says the displayed exact shared-mix format is supported or not supported in exclusive mode; do not imply broader negotiation.
 
-- [ ] **Step 4: Run UI checks**
+- [x] **Step 4: Run UI checks**
 
 Run: `npm --prefix apps/autodj-live test -- --run src/setup.test.ts && npm --prefix apps/autodj-live run build`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message: `feat: show exact WASAPI exclusive support`
 
@@ -109,15 +109,17 @@ Commit message: `feat: show exact WASAPI exclusive support`
 - Consumes: the existing `live-audio` discovery example.
 - Produces: verified local and remote branch state.
 
-- [ ] **Step 1: Run the native probe on the installed Rane endpoint**
+**Native evidence:** On the connected active `Mic 1/2 (Rane PERFORMER)` endpoint, the probe returned 2 channels, 48 kHz, 32-bit, a 10 ms default period, a 3 ms minimum period, and `exclusive_shared_mix_supported: false`. The result means only that this exact shared-mix descriptor is not accepted in exclusive mode; no stream was initialized or started, and other exclusive formats and ASIO remain untested.
+
+- [x] **Step 1: Run the native probe on the installed Rane endpoint**
 
 Run the existing discovery example with probing enabled and record only the returned capability evidence; no stream may be initialized.
 
-- [ ] **Step 2: Run repository verification**
+- [x] **Step 2: Run repository verification**
 
 Run formatting, Clippy with warnings denied, full Rust tests, UI tests/build, workspace policy tests, architecture checks, and whitespace checks.
 
-- [ ] **Step 3: Mark this plan complete and commit**
+- [x] **Step 3: Mark this plan complete and commit**
 
 Commit message: `docs: record exact WASAPI exclusive verification`
 
