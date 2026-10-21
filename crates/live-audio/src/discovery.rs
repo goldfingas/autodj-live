@@ -40,6 +40,7 @@ pub struct WasapiCapabilities {
     pub bits_per_sample: u16,
     pub default_period_100ns: u64,
     pub minimum_period_100ns: u64,
+    pub exclusive_shared_mix_supported: bool,
 }
 
 #[derive(Debug, Default)]
@@ -110,6 +111,7 @@ fn wasapi_capabilities(
     bits_per_sample: u16,
     default_period_100ns: i64,
     minimum_period_100ns: i64,
+    exclusive_shared_mix_supported: bool,
 ) -> Result<WasapiCapabilities, &'static str> {
     if endpoint_id.is_empty()
         || channels == 0
@@ -128,6 +130,7 @@ fn wasapi_capabilities(
         bits_per_sample,
         default_period_100ns: default_period_100ns as u64,
         minimum_period_100ns: minimum_period_100ns as u64,
+        exclusive_shared_mix_supported,
     })
 }
 
@@ -222,7 +225,7 @@ mod tests {
     #[test]
     fn wasapi_capabilities_require_a_real_format_and_nonnegative_periods() {
         assert_eq!(
-            wasapi_capabilities("endpoint-1".into(), 8, 48_000, 32, 100_000, 30_000).unwrap(),
+            wasapi_capabilities("endpoint-1".into(), 8, 48_000, 32, 100_000, 30_000, true).unwrap(),
             WasapiCapabilities {
                 endpoint_id: "endpoint-1".into(),
                 channels: 8,
@@ -230,16 +233,17 @@ mod tests {
                 bits_per_sample: 32,
                 default_period_100ns: 100_000,
                 minimum_period_100ns: 30_000,
+                exclusive_shared_mix_supported: true,
             }
         );
 
         for malformed in [
-            wasapi_capabilities("id".into(), 0, 48_000, 32, 1, 1),
-            wasapi_capabilities("id".into(), 2, 0, 32, 1, 1),
-            wasapi_capabilities("id".into(), 2, 48_000, 0, 1, 1),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, -1, 1),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, -1),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, 2),
+            wasapi_capabilities("id".into(), 0, 48_000, 32, 1, 1, false),
+            wasapi_capabilities("id".into(), 2, 0, 32, 1, 1, false),
+            wasapi_capabilities("id".into(), 2, 48_000, 0, 1, 1, false),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, -1, 1, false),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, -1, false),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, 2, false),
         ] {
             assert!(malformed.is_err());
         }

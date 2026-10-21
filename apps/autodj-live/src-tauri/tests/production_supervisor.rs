@@ -108,6 +108,7 @@ impl SupervisorSession for Session {
             bits_per_sample: 32,
             default_period_100ns: 100_000,
             minimum_period_100ns: 30_000,
+            exclusive_shared_mix_supported: false,
         })
     }
 }

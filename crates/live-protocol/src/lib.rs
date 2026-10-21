@@ -123,6 +123,7 @@ pub struct WasapiCapabilities {
     pub bits_per_sample: u16,
     pub default_period_100ns: u64,
     pub minimum_period_100ns: u64,
+    pub exclusive_shared_mix_supported: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -218,6 +218,7 @@ fn map_wasapi(capabilities: live_audio::discovery::WasapiCapabilities) -> Wasapi
         bits_per_sample: capabilities.bits_per_sample,
         default_period_100ns: capabilities.default_period_100ns,
         minimum_period_100ns: capabilities.minimum_period_100ns,
+        exclusive_shared_mix_supported: capabilities.exclusive_shared_mix_supported,
     }
 }
 

@@ -108,6 +108,16 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             bits_per_sample: 32,
             default_period_100ns: 100_000,
             minimum_period_100ns: 30_000,
+            exclusive_shared_mix_supported: true,
+        }),
+        EngineEvent::WasapiCapabilities(WasapiCapabilities {
+            endpoint_id: "endpoint-2".into(),
+            channels: 2,
+            sample_rate_hz: 44_100,
+            bits_per_sample: 24,
+            default_period_100ns: 120_000,
+            minimum_period_100ns: 40_000,
+            exclusive_shared_mix_supported: false,
         }),
     ];
     for event in events {

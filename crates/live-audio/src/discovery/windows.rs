@@ -2,9 +2,10 @@ use super::*;
 use ::windows::{
     Win32::{
         Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
-        Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS},
+        Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, S_OK},
         Media::Audio::{
-            DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IMMDevice,
+            AUDCLNT_E_UNSUPPORTED_FORMAT, AUDCLNT_SHAREMODE_EXCLUSIVE, DEVICE_STATE,
+            DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IMMDevice,
             IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, eCapture, eRender,
         },
         System::{
@@ -16,7 +17,7 @@ use ::windows::{
             Registry::*,
         },
     },
-    core::{GUID, PCWSTR, PWSTR, w},
+    core::{GUID, HRESULT, PCWSTR, PWSTR, w},
 };
 
 struct ComApartment;
@@ -62,6 +63,16 @@ fn validated_mix_format(format: WAVEFORMATEX) -> Result<(u16, u32, u16), &'stati
         return Err("WASAPI returned an invalid shared mix format");
     }
     Ok((channels, sample_rate, bits))
+}
+
+fn exclusive_format_support(result: HRESULT) -> Result<bool, &'static str> {
+    if result == S_OK {
+        Ok(true)
+    } else if result == AUDCLNT_E_UNSUPPORTED_FORMAT {
+        Ok(false)
+    } else {
+        Err("could not check WASAPI exclusive format")
+    }
 }
 
 struct Key(HKEY);
@@ -135,6 +146,9 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
     let _format_memory = TaskMemory(format_ptr.cast());
     let format = unsafe { format_ptr.read_unaligned() };
     let (channels, sample_rate, bits) = validated_mix_format(format)?;
+    let exclusive_shared_mix_supported = exclusive_format_support(unsafe {
+        client.IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, format_ptr, None)
+    })?;
     let mut default_period = 0;
     let mut minimum_period = 0;
     unsafe { client.GetDevicePeriod(Some(&mut default_period), Some(&mut minimum_period)) }
@@ -146,6 +160,7 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
         bits,
         default_period,
         minimum_period,
+        exclusive_shared_mix_supported,
     )
 }
 
@@ -346,6 +361,21 @@ mod tests {
         for format in invalid {
             assert!(validated_mix_format(format).is_err());
         }
+    }
+
+    #[test]
+    fn exclusive_format_result_distinguishes_unsupported_from_probe_failure() {
+        use ::windows::{
+            Win32::{Foundation::E_FAIL, Media::Audio::AUDCLNT_E_UNSUPPORTED_FORMAT},
+            core::HRESULT,
+        };
+
+        assert_eq!(exclusive_format_support(HRESULT(0)).unwrap(), true);
+        assert_eq!(
+            exclusive_format_support(AUDCLNT_E_UNSUPPORTED_FORMAT).unwrap(),
+            false
+        );
+        assert!(exclusive_format_support(E_FAIL).is_err());
     }
 
     #[test]
