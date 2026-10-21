@@ -74,7 +74,15 @@
 - [x] Add lifecycle/backend pass-through and the Tauri command, returning only the capability DTO.
 - [x] Render one endpoint-local action/result. Label output `WASAPI shared mix` and state `Exclusive and ASIO support untested`; describe periods as engine periods, not latency.
 - [x] Run UI tests/lint, Tauri tests, full Rust workspace tests, architecture policy, formatting, and whitespace checks.
-- [ ] Exercise a connected active endpoint through the native probe path without initializing a stream; record exact output and limitations. Obtain independent review, fix Important findings test-first, commit/push, and verify local/remote `0 0`.
+- [x] Exercise a connected active endpoint through the native probe path without initializing a stream; record exact output and limitations. Obtain independent review, fix Important findings test-first, commit/push, and verify local/remote `0 0`.
+
+## Completion checkpoint
+
+- Native evidence: `Mic 1/2 (Rane PERFORMER)` reported a 2-channel, 48 kHz, 32-bit shared mix with 10 ms default and 3 ms minimum Windows engine periods; no stream initialization/start call exists.
+- Automated verification: 68 Rust workspace tests and 15 UI tests passed; Clippy with warnings denied and the TypeScript/Vite production build passed.
+- Policy verification: six Live workspace policy tests, architecture traceability, formatting, and whitespace checks passed.
+- Independent review: the Important malformed-`WAVEFORMATEX` finding was fixed RED→GREEN by validating format tag, extension size, channel/sample width, block alignment, and byte rate before extraction.
+- Evidence limit: physical latency, exclusive mode, ASIO capability, physical channel mapping, and actual NVDA speech remain unverified follow-ons.
 
 ## Explicit follow-ons
 

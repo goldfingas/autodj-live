@@ -5,7 +5,7 @@ use ::windows::{
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS},
         Media::Audio::{
             DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IMMDevice,
-            IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eRender,
+            IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, eCapture, eRender,
         },
         System::{
             Com::{
@@ -32,6 +32,36 @@ impl Drop for TaskMemory {
     fn drop(&mut self) {
         unsafe { CoTaskMemFree(Some(self.0)) };
     }
+}
+
+fn validated_mix_format(format: WAVEFORMATEX) -> Result<(u16, u32, u16), &'static str> {
+    let tag = format.wFormatTag;
+    let channels = format.nChannels;
+    let sample_rate = format.nSamplesPerSec;
+    let bits = format.wBitsPerSample;
+    let block_align = format.nBlockAlign;
+    let byte_rate = format.nAvgBytesPerSec;
+    let extension_size = format.cbSize;
+    if !matches!(tag, 1 | 3 | 0xfffe)
+        || (tag == 0xfffe && extension_size < 22)
+        || (tag != 0xfffe && extension_size != 0)
+        || channels == 0
+        || sample_rate == 0
+        || bits == 0
+        || !bits.is_multiple_of(8)
+    {
+        return Err("WASAPI returned an invalid shared mix format");
+    }
+    let expected_block = u32::from(channels)
+        .checked_mul(u32::from(bits) / 8)
+        .ok_or("WASAPI returned an invalid shared mix format")?;
+    let expected_rate = sample_rate
+        .checked_mul(expected_block)
+        .ok_or("WASAPI returned an invalid shared mix format")?;
+    if expected_block != u32::from(block_align) || expected_rate != byte_rate {
+        return Err("WASAPI returned an invalid shared mix format");
+    }
+    Ok((channels, sample_rate, bits))
 }
 
 struct Key(HKEY);
@@ -104,15 +134,16 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
     }
     let _format_memory = TaskMemory(format_ptr.cast());
     let format = unsafe { format_ptr.read_unaligned() };
+    let (channels, sample_rate, bits) = validated_mix_format(format)?;
     let mut default_period = 0;
     let mut minimum_period = 0;
     unsafe { client.GetDevicePeriod(Some(&mut default_period), Some(&mut minimum_period)) }
         .map_err(|_| "could not read WASAPI engine periods")?;
     wasapi_capabilities(
         endpoint_id.to_owned(),
-        format.nChannels,
-        format.nSamplesPerSec,
-        format.wBitsPerSample,
+        channels,
+        sample_rate,
+        bits,
         default_period,
         minimum_period,
     )
@@ -272,6 +303,50 @@ fn parse_clsid(value: &[u16]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn wave_format(
+        tag: u16,
+        channels: u16,
+        rate: u32,
+        bits: u16,
+        cb_size: u16,
+    ) -> ::windows::Win32::Media::Audio::WAVEFORMATEX {
+        let block_align = channels * (bits / 8);
+        ::windows::Win32::Media::Audio::WAVEFORMATEX {
+            wFormatTag: tag,
+            nChannels: channels,
+            nSamplesPerSec: rate,
+            nAvgBytesPerSec: rate * u32::from(block_align),
+            nBlockAlign: block_align,
+            wBitsPerSample: bits,
+            cbSize: cb_size,
+        }
+    }
+
+    #[test]
+    fn native_mix_format_must_be_coherent_before_fields_are_exposed() {
+        assert_eq!(
+            validated_mix_format(wave_format(0xfffe, 8, 48_000, 32, 22)).unwrap(),
+            (8, 48_000, 32)
+        );
+        assert_eq!(
+            validated_mix_format(wave_format(3, 2, 48_000, 32, 0)).unwrap(),
+            (2, 48_000, 32)
+        );
+
+        let mut invalid = [
+            wave_format(3, 2, 48_000, 7, 0),
+            wave_format(3, 2, 48_000, 32, 0),
+            wave_format(3, 2, 48_000, 32, 0),
+            wave_format(0xfffe, 2, 48_000, 32, 21),
+            wave_format(0x1234, 2, 48_000, 32, 0),
+        ];
+        invalid[1].nBlockAlign = 0;
+        invalid[2].nAvgBytesPerSec = 1;
+        for format in invalid {
+            assert!(validated_mix_format(format).is_err());
+        }
+    }
 
     #[test]
     fn clsid_validation_rejects_malformed_registration() {
