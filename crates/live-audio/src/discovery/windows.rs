@@ -370,11 +370,8 @@ mod tests {
             core::HRESULT,
         };
 
-        assert_eq!(exclusive_format_support(HRESULT(0)).unwrap(), true);
-        assert_eq!(
-            exclusive_format_support(AUDCLNT_E_UNSUPPORTED_FORMAT).unwrap(),
-            false
-        );
+        assert!(exclusive_format_support(HRESULT(0)).unwrap());
+        assert!(!exclusive_format_support(AUDCLNT_E_UNSUPPORTED_FORMAT).unwrap());
         assert!(exclusive_format_support(E_FAIL).is_err());
     }
 
