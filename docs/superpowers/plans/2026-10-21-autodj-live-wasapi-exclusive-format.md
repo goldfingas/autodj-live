@@ -123,6 +123,13 @@ Run formatting, Clippy with warnings denied, full Rust tests, UI tests/build, wo
 
 Commit message: `docs: record exact WASAPI exclusive verification`
 
-- [ ] **Step 4: Push and prove synchronization**
+- [x] **Step 4: Push and prove synchronization**
 
 Push `feat/autodj-live-audio-routing`, then require `git rev-list --left-right --count HEAD...origin/feat/autodj-live-audio-routing` to print `0 0`.
+
+## Completion checkpoint
+
+- Native evidence: the connected active `Mic 1/2 (Rane PERFORMER)` exact 2-channel, 48 kHz, 32-bit shared descriptor returned unsupported for WASAPI exclusive mode; no stream was initialized or started.
+- Automated verification: 69 Rust workspace tests and 16 UI tests passed; Clippy with warnings denied, TypeScript/Vite checks, the production Tauri/NSIS build, six workspace policy tests, architecture traceability, formatting, and whitespace checks passed.
+- Independent review: no Critical or Important findings. One Minor contributor-document wording mismatch was deferred to the next documentation pass.
+- Evidence limit: other exclusive formats, stream initialization/playback, ASIO, measured latency, packaged-app execution, and NVDA remain unverified.
