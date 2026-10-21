@@ -19,8 +19,18 @@ export interface AudioDiscovery {
   issues: string[];
 }
 
+export interface WasapiCapabilities {
+  endpointId: string;
+  channels: number;
+  sampleRateHz: number;
+  bitsPerSample: number;
+  defaultPeriod100ns: number;
+  minimumPeriod100ns: number;
+}
+
 export interface AudioSetupApi {
   discover(): Promise<AudioDiscovery>;
+  probe(endpointId: string): Promise<WasapiCapabilities>;
 }
 
 function label(value: string): string {
@@ -29,6 +39,12 @@ function label(value: string): string {
 
 function stateLabel(state: AudioEndpointState): string {
   return typeof state === "string" ? label(state) : `Unknown (${state.unknown})`;
+}
+
+const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+
+function capabilityLabel(capabilities: WasapiCapabilities): string {
+  return `WASAPI shared mix: ${capabilities.channels} channels · ${number.format(capabilities.sampleRateHz)} Hz · ${capabilities.bitsPerSample}-bit. Engine periods: ${number.format(capabilities.defaultPeriod100ns / 10_000)} ms default · ${number.format(capabilities.minimumPeriod100ns / 10_000)} ms minimum. Exclusive and ASIO support untested.`;
 }
 
 function list(headingText: string): { container: HTMLElement; items: HTMLUListElement } {
@@ -41,6 +57,7 @@ function list(headingText: string): { container: HTMLElement; items: HTMLUListEl
 }
 
 export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
+  let generation = 0;
   const section = document.createElement("section");
   section.className = "audio-setup";
   const heading = document.createElement("h2");
@@ -73,10 +90,45 @@ export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
   root.append(section);
 
   function render(discovery: AudioDiscovery) {
+    generation += 1;
+    const currentGeneration = generation;
     endpoints.items.replaceChildren(...discovery.endpoints.map((endpoint) => {
       const item = document.createElement("li");
       item.dataset.endpointId = endpoint.id;
-      item.textContent = `${endpoint.name} — ${label(endpoint.direction)} · ${stateLabel(endpoint.state)}`;
+      const identity = document.createElement("span");
+      identity.textContent = `${endpoint.name} — ${label(endpoint.direction)} · ${stateLabel(endpoint.state)}`;
+      item.append(identity);
+      if (endpoint.state === "active") {
+        const probe = document.createElement("button");
+        probe.type = "button";
+        probe.dataset.probeWasapi = "";
+        probe.textContent = "Probe WASAPI";
+        probe.setAttribute("aria-label", `Probe WASAPI shared mix for ${endpoint.name}`);
+        const result = document.createElement("p");
+        result.className = "probe-result";
+        probe.addEventListener("click", async () => {
+          const restoreFocus = document.activeElement === probe;
+          probe.disabled = true;
+          result.textContent = "Probing WASAPI shared mix…";
+          try {
+            const capabilities = await api.probe(endpoint.id);
+            if (generation !== currentGeneration) return;
+            if (capabilities.endpointId !== endpoint.id) throw new Error("endpoint mismatch");
+            result.textContent = capabilityLabel(capabilities);
+            announcement.textContent = "WASAPI shared mix ready.";
+          } catch {
+            if (generation !== currentGeneration) return;
+            result.textContent = "WASAPI shared mix could not be read.";
+            announcement.textContent = result.textContent;
+          } finally {
+            probe.disabled = false;
+            if (restoreFocus && (document.activeElement === probe || document.activeElement === document.body)) {
+              probe.focus();
+            }
+          }
+        });
+        item.append(probe, result);
+      }
       return item;
     }));
     asio.items.replaceChildren(...discovery.asioDrivers.map((driver) => {

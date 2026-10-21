@@ -70,10 +70,10 @@
 - Consumes: `LiveSession::probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, SupervisorError>`
 - Produces: Tauri `probe_wasapi_endpoint(endpoint_id: String)` and UI `AudioSetupApi.probe(endpointId)`
 
-- [ ] Write Tauri and DOM tests first. Assert no automatic probe; only active endpoints get a Probe button; the correct hidden ID is requested; loading is bounded to the activated action; shared format/timing replaces prior text; refresh removes stale results; failure copy is generic; announcements contain no IDs.
-- [ ] Add lifecycle/backend pass-through and the Tauri command, returning only the capability DTO.
-- [ ] Render one endpoint-local action/result. Label output `WASAPI shared mix` and state `Exclusive and ASIO support untested`; describe periods as engine periods, not latency.
-- [ ] Run UI tests/lint, Tauri tests, full Rust workspace tests, architecture policy, formatting, and whitespace checks.
+- [x] Write Tauri and DOM tests first. Assert no automatic probe; only active endpoints get a Probe button; the correct hidden ID is requested; loading is bounded to the activated action; shared format/timing replaces prior text; refresh removes stale results; failure copy is generic; announcements contain no IDs.
+- [x] Add lifecycle/backend pass-through and the Tauri command, returning only the capability DTO.
+- [x] Render one endpoint-local action/result. Label output `WASAPI shared mix` and state `Exclusive and ASIO support untested`; describe periods as engine periods, not latency.
+- [x] Run UI tests/lint, Tauri tests, full Rust workspace tests, architecture policy, formatting, and whitespace checks.
 - [ ] Exercise a connected active endpoint through the native probe path without initializing a stream; record exact output and limitations. Obtain independent review, fix Important findings test-first, commit/push, and verify local/remote `0 0`.
 
 ## Explicit follow-ons

@@ -5,7 +5,8 @@ use std::{
 
 use autodj_live_app::{
     AudioDiscovery, Component, FoundationLifecycle, ProductionSupervisor, ShellLifecycle,
-    SupervisorBackend, SupervisorRuntime, SupervisorSession, resolve_child_paths,
+    SupervisorBackend, SupervisorRuntime, SupervisorSession, WasapiCapabilities,
+    resolve_child_paths,
 };
 use autodj_live_supervisor::{
     ChildCommand, LaunchConfig, Protection, RuntimeStore, SupervisorError,
@@ -93,6 +94,20 @@ impl SupervisorSession for Session {
             endpoints: vec![],
             asio_drivers: vec![],
             issues: vec![],
+        })
+    }
+
+    async fn probe_wasapi(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiCapabilities, SupervisorError> {
+        Ok(WasapiCapabilities {
+            endpoint_id: endpoint_id.into(),
+            channels: 2,
+            sample_rate_hz: 48_000,
+            bits_per_sample: 32,
+            default_period_100ns: 100_000,
+            minimum_period_100ns: 30_000,
         })
     }
 }

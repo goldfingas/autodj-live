@@ -9,6 +9,7 @@ use std::{
 
 pub use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
+    WasapiCapabilities,
 };
 use autodj_live_supervisor::{
     ChildCommand, LaunchConfig, LiveSession, LiveSupervisor, RuntimeRecord, RuntimeStore,
@@ -54,6 +55,10 @@ pub trait SupervisorBackend: Send {
     fn audio_discovery(
         &mut self,
     ) -> impl std::future::Future<Output = Result<AudioDiscovery, Component>> + Send;
+    fn probe_wasapi(
+        &mut self,
+        endpoint_id: &str,
+    ) -> impl std::future::Future<Output = Result<WasapiCapabilities, Component>> + Send;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -206,6 +211,16 @@ impl<B: SupervisorBackend> FoundationLifecycle<B> {
         self.backend.audio_discovery().await
     }
 
+    pub async fn probe_wasapi(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiCapabilities, Component> {
+        if !self.setup_complete || self.stopped {
+            return Err(Component::Engine);
+        }
+        self.backend.probe_wasapi(endpoint_id).await
+    }
+
     pub fn status(&self) -> FoundationStatus {
         let mut status = self.status.clone();
         status.uptime_seconds = self.started.elapsed().as_secs();
@@ -268,6 +283,10 @@ impl<B: SupervisorBackend> ShellLifecycle<B> {
         self.lifecycle.lock().await.audio_discovery().await
     }
 
+    pub async fn probe_wasapi(&self, endpoint_id: &str) -> Result<WasapiCapabilities, Component> {
+        self.lifecycle.lock().await.probe_wasapi(endpoint_id).await
+    }
+
     pub fn claim_exit(&self) -> bool {
         !self.exiting.swap(true, Ordering::SeqCst)
     }
@@ -316,6 +335,10 @@ pub trait SupervisorSession: Send {
     fn audio_discovery(
         &mut self,
     ) -> impl std::future::Future<Output = Result<AudioDiscovery, SupervisorError>> + Send;
+    fn probe_wasapi(
+        &mut self,
+        endpoint_id: &str,
+    ) -> impl std::future::Future<Output = Result<WasapiCapabilities, SupervisorError>> + Send;
 }
 
 impl SupervisorSession for LiveSession {
@@ -345,6 +368,13 @@ impl SupervisorSession for LiveSession {
 
     async fn audio_discovery(&mut self) -> Result<AudioDiscovery, SupervisorError> {
         LiveSession::audio_discovery(self).await
+    }
+
+    async fn probe_wasapi(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiCapabilities, SupervisorError> {
+        LiveSession::probe_wasapi(self, endpoint_id).await
     }
 }
 
@@ -532,6 +562,15 @@ impl<R: SupervisorRuntime> SupervisorBackend for ProductionSupervisor<R> {
             .await
             .map_err(|_| Component::Engine)
     }
+
+    async fn probe_wasapi(&mut self, endpoint_id: &str) -> Result<WasapiCapabilities, Component> {
+        self.session
+            .as_mut()
+            .ok_or(Component::Engine)?
+            .probe_wasapi(endpoint_id)
+            .await
+            .map_err(|_| Component::Engine)
+    }
 }
 
 type AppState = ShellLifecycle<ProductionSupervisor>;
@@ -561,13 +600,22 @@ async fn get_audio_discovery(state: tauri::State<'_, Arc<AppState>>) -> Result<A
     state.audio_discovery().await.map_err(|_| ())
 }
 
+#[tauri::command]
+async fn probe_wasapi_endpoint(
+    endpoint_id: String,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<WasapiCapabilities, ()> {
+    state.probe_wasapi(&endpoint_id).await.map_err(|_| ())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             get_foundation_status,
             retry_component,
             shutdown_live,
-            get_audio_discovery
+            get_audio_discovery,
+            probe_wasapi_endpoint
         ])
         .setup(|app| {
             let resource_dir = app.path().resource_dir()?;

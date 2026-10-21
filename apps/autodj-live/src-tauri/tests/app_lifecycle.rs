@@ -9,7 +9,7 @@ use std::{
 use autodj_live_app::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BackendConnection, BackendHealth, Component, FoundationLifecycle, ShellLifecycle,
-    SupervisorBackend, request_orderly_exit,
+    SupervisorBackend, WasapiCapabilities, request_orderly_exit,
 };
 use uuid::Uuid;
 
@@ -20,6 +20,7 @@ struct Shared {
     shutdowns: usize,
     retries: Vec<Component>,
     discovery_requests: usize,
+    probe_requests: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -89,6 +90,36 @@ impl SupervisorBackend for FakeSupervisor {
             issues: vec![],
         })
     }
+
+    async fn probe_wasapi(&mut self, endpoint_id: &str) -> Result<WasapiCapabilities, Component> {
+        self.shared
+            .lock()
+            .unwrap()
+            .probe_requests
+            .push(endpoint_id.into());
+        Ok(WasapiCapabilities {
+            endpoint_id: endpoint_id.into(),
+            channels: 8,
+            sample_rate_hz: 48_000,
+            bits_per_sample: 32,
+            default_period_100ns: 100_000,
+            minimum_period_100ns: 30_000,
+        })
+    }
+}
+
+#[tokio::test]
+async fn wasapi_probe_is_user_requested_and_passes_through_engine_data() {
+    let shared = Arc::new(Mutex::new(Shared::default()));
+    let shell = ShellLifecycle::new(FakeSupervisor::new(shared.clone()));
+    shell.setup().await.unwrap();
+    assert!(shared.lock().unwrap().probe_requests.is_empty());
+
+    let capabilities = shell.probe_wasapi("rane-output").await.unwrap();
+
+    assert_eq!(shared.lock().unwrap().probe_requests, ["rane-output"]);
+    assert_eq!(capabilities.channels, 8);
+    assert_eq!(capabilities.sample_rate_hz, 48_000);
 }
 
 #[tokio::test]

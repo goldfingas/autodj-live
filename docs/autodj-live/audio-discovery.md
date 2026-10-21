@@ -75,8 +75,8 @@ can add a missing string terminator; this normalization is accepted. Empty,
 embedded-NUL, invalid-Unicode and invalid-GUID results are rejected. This is
 not a raw registry corruption audit.
 
-No capability probing, ASIO initialization, or playback is included. No
-physical channel routing or latency is certified by inventory.
+Inventory alone performs no capability probing, ASIO initialization, or
+playback. No physical channel routing or latency is certified by inventory.
 
 The inventory is now available from the desktop's read-only **Audio setup**
 section through the authenticated engine/supervisor path. Refresh is manual;
@@ -87,3 +87,19 @@ are rejected until it finishes. Automated UI checks cover duplicate names,
 partial issues, replacement on refresh, keyboard focus, and concise status
 announcements. A real visual/NVDA click-through remains unverified because the
 Windows automation connector exposed no usable app/window methods in this run.
+
+## Explicit WASAPI shared-engine probe
+
+The Setup list now offers **Probe WASAPI** only for active Windows endpoints.
+This separate action activates `IAudioClient` long enough to read
+`GetMixFormat` and `GetDevicePeriod`; it does not call `Initialize` or `Start`.
+The endpoint-local result is labeled **WASAPI shared mix** and explicitly says
+that exclusive and ASIO support remain untested. Refreshing inventory removes
+the prior result, and a late result from an older list is ignored.
+
+On 2026-10-21 the authenticated engine path probed the active input endpoint
+`Mic 1/2 (Rane PERFORMER)`: 2 channels, 48,000 Hz, 32-bit shared mix, with a
+10 ms default engine period and 3 ms minimum engine period. These periods are
+Windows engine scheduling values, not measured input/output or scratch latency.
+No stream was initialized or started, and the Rane ASIO driver remained
+registered/unprobed.

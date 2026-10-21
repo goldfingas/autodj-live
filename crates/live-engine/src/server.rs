@@ -26,7 +26,7 @@ use crate::{
 };
 
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
-const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(1_500);
+const AUDIO_OPERATION_TIMEOUT: Duration = Duration::from_millis(1_500);
 const MAX_CLIENTS: usize = 64;
 
 #[derive(Clone, Default)]
@@ -169,7 +169,7 @@ async fn serve(
                         Ok(()) => {
                             drop(lease);
                             let discovered = match audio_worker.start(live_audio::discovery::discover) {
-                                Ok(receiver) => Some(timeout(DISCOVERY_TIMEOUT, receiver).await),
+                                Ok(receiver) => Some(timeout(AUDIO_OPERATION_TIMEOUT, receiver).await),
                                 Err(()) => None,
                             };
                             let still_owner = state.lock().await.authorize_audio_operation(id);
@@ -186,7 +186,7 @@ async fn serve(
                         Ok(()) => {
                             drop(lease);
                             let probed = match audio_worker.start(move || live_audio::discovery::probe_wasapi(&endpoint_id)) {
-                                Ok(receiver) => Some(timeout(DISCOVERY_TIMEOUT, receiver).await),
+                                Ok(receiver) => Some(timeout(AUDIO_OPERATION_TIMEOUT, receiver).await),
                                 Err(()) => None,
                             };
                             let still_owner = state.lock().await.authorize_audio_operation(id);
