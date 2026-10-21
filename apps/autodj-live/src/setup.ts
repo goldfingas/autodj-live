@@ -26,6 +26,7 @@ export interface WasapiCapabilities {
   bitsPerSample: number;
   defaultPeriod100ns: number;
   minimumPeriod100ns: number;
+  exclusiveSharedMixSupported: boolean;
 }
 
 export interface AudioSetupApi {
@@ -44,7 +45,8 @@ function stateLabel(state: AudioEndpointState): string {
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 function capabilityLabel(capabilities: WasapiCapabilities): string {
-  return `WASAPI shared mix: ${capabilities.channels} channels · ${number.format(capabilities.sampleRateHz)} Hz · ${capabilities.bitsPerSample}-bit. Engine periods: ${number.format(capabilities.defaultPeriod100ns / 10_000)} ms default · ${number.format(capabilities.minimumPeriod100ns / 10_000)} ms minimum. Exclusive and ASIO support untested.`;
+  const exactExclusive = capabilities.exclusiveSharedMixSupported ? "supported" : "not supported";
+  return `WASAPI shared mix: ${capabilities.channels} channels · ${number.format(capabilities.sampleRateHz)} Hz · ${capabilities.bitsPerSample}-bit. Engine periods: ${number.format(capabilities.defaultPeriod100ns / 10_000)} ms default · ${number.format(capabilities.minimumPeriod100ns / 10_000)} ms minimum. This exact format is ${exactExclusive} in exclusive mode. Other exclusive formats and ASIO untested.`;
 }
 
 function list(headingText: string): { container: HTMLElement; items: HTMLUListElement } {

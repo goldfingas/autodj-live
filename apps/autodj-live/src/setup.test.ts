@@ -23,6 +23,7 @@ const CAPABILITIES = {
   bitsPerSample: 32,
   defaultPeriod100ns: 100_000,
   minimumPeriod100ns: 30_000,
+  exclusiveSharedMixSupported: true,
 };
 
 describe("audio setup discovery", () => {
@@ -124,11 +125,34 @@ describe("audio setup discovery", () => {
     resolve.value?.(CAPABILITIES);
     await vi.waitFor(() => expect(buttons[0].disabled).toBe(false));
     expect(document.body.textContent).toContain(
-      "WASAPI shared mix: 8 channels · 48,000 Hz · 32-bit. Engine periods: 10 ms default · 3 ms minimum. Exclusive and ASIO support untested.",
+      "WASAPI shared mix: 8 channels · 48,000 Hz · 32-bit. Engine periods: 10 ms default · 3 ms minimum. This exact format is supported in exclusive mode. Other exclusive formats and ASIO untested.",
     );
     const announcement = document.querySelector("[data-audio-announcement]")?.textContent ?? "";
     expect(announcement).toBe("WASAPI shared mix ready.");
     expect(announcement).not.toContain("output-1");
+  });
+
+  test("labels an unsupported exact exclusive format without implying broader coverage", async () => {
+    const unsupported = {
+      endpointId: "output-1",
+      channels: 8,
+      sampleRateHz: 48_000,
+      bitsPerSample: 32,
+      defaultPeriod100ns: 100_000,
+      minimumPeriod100ns: 30_000,
+      exclusiveSharedMixSupported: false,
+    };
+    mountAudioSetup(document.body, {
+      discover: vi.fn().mockResolvedValue(DISCOVERY),
+      probe: vi.fn().mockResolvedValue(unsupported),
+    });
+    (document.querySelector("button") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector("[data-probe-wasapi]")).not.toBeNull());
+    (document.querySelector("[data-probe-wasapi]") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain(
+      "This exact format is not supported in exclusive mode. Other exclusive formats and ASIO untested.",
+    ));
   });
 
   test("refresh discards stale capabilities and late probe results", async () => {
