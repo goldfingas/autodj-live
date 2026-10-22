@@ -60,6 +60,8 @@ pub struct ServerHello {
     pub engine_id: Uuid,
     pub pid: u32,
     pub lease_deadline_ns: u64,
+    #[serde(default)]
+    pub supports_wasapi_shared_initialization: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

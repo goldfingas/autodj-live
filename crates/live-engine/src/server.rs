@@ -145,6 +145,7 @@ async fn serve(
         engine_id,
         pid: std::process::id(),
         lease_deadline_ns: deadline,
+        supports_wasapi_shared_initialization: true,
     };
     if !send(&mut socket, &response).await {
         return;

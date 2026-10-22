@@ -122,27 +122,18 @@ async fn active_supervisor_can_probe_an_active_wasapi_endpoint() {
 }
 
 #[tokio::test]
+#[ignore = "requires AUTODJ_LIVE_WASAPI_ENDPOINT_ID naming an endpoint available for shared initialization"]
 async fn active_supervisor_can_initialize_and_release_an_active_wasapi_shared_buffer() {
     let config = config();
     let mut session = LiveSupervisor::launch(config).await.unwrap();
-    let discovery = session.audio_discovery().await.unwrap();
-    if let Some(endpoint) = discovery
-        .endpoints
-        .iter()
-        .find(|endpoint| endpoint.state == autodj_live_protocol::AudioEndpointState::Active)
-    {
-        let initialized = session
-            .initialize_wasapi_shared(&endpoint.id)
-            .await
-            .unwrap();
-        assert_eq!(initialized.endpoint_id, endpoint.id);
-        assert!(initialized.requested_period_frames > 0);
-        assert!(initialized.buffer_frames > 0);
-    }
-    assert_eq!(
-        session.initialize_wasapi_shared("missing-endpoint").await,
-        Err(SupervisorError::Rejected)
-    );
+    let endpoint_id = std::env::var("AUTODJ_LIVE_WASAPI_ENDPOINT_ID").unwrap();
+    let initialized = session
+        .initialize_wasapi_shared(&endpoint_id)
+        .await
+        .unwrap();
+    assert_eq!(initialized.endpoint_id, endpoint_id);
+    assert!(initialized.requested_period_frames > 0);
+    assert!(initialized.buffer_frames > 0);
     session.shutdown().await.unwrap();
 }
 

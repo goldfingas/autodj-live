@@ -39,6 +39,7 @@ pub struct LiveSession {
     engine_handle: OwnedHandle,
     engine: Option<ManagedChild>,
     sidecar: ManagedChild,
+    supports_wasapi_shared_initialization: bool,
 }
 
 impl LiveSupervisor {
@@ -101,7 +102,8 @@ impl LiveSupervisor {
             sidecar_created: 0,
         };
         let result = async {
-            let mut socket = connect(&record, &token).await?;
+            let (mut socket, supports_wasapi_shared_initialization) =
+                connect(&record, &token).await?;
             attach(&mut socket, 1).await?;
             let mut sidecar = ManagedChild::start(&config.sidecar, &hex, session, true).await?;
             if let Err(error) = sidecar_ready(&sidecar, &token, session).await {
@@ -114,10 +116,10 @@ impl LiveSupervisor {
                 sidecar.stop().await?;
                 return Err(error);
             }
-            Ok((socket, sidecar))
+            Ok((socket, sidecar, supports_wasapi_shared_initialization))
         }
         .await;
-        let (socket, sidecar) = match result {
+        let (socket, sidecar, supports_wasapi_shared_initialization) = match result {
             Ok(pair) => pair,
             Err(error) => {
                 engine.stop().await?;
@@ -137,6 +139,7 @@ impl LiveSupervisor {
             engine_handle,
             engine: Some(engine),
             sidecar,
+            supports_wasapi_shared_initialization,
         })
     }
 
@@ -146,7 +149,7 @@ impl LiveSupervisor {
         handle: OwnedHandle,
     ) -> Result<LiveSession, SupervisorError> {
         let token = record.token()?;
-        let mut socket = connect(&record, &token).await?;
+        let (mut socket, supports_wasapi_shared_initialization) = connect(&record, &token).await?;
         let snapshot = health(&mut socket).await?;
         if snapshot.engine_id != record.engine_id {
             return Err(SupervisorError::Authentication);
@@ -194,6 +197,7 @@ impl LiveSupervisor {
             engine_handle: handle,
             engine: None,
             sidecar,
+            supports_wasapi_shared_initialization,
         })
     }
 }
@@ -218,17 +222,18 @@ impl LiveSession {
         record.port = engine.descriptor.port;
         record.generation = 1;
         let result = async {
-            let mut socket = connect(&record, &self.token).await?;
+            let (mut socket, supports_wasapi_shared_initialization) =
+                connect(&record, &self.token).await?;
             attach(&mut socket, 1).await?;
             let handle = engine
                 .handle
                 .try_clone()
                 .map_err(|_| SupervisorError::Discovery)?;
             self.config.runtime.write(&record)?;
-            Ok((socket, handle))
+            Ok((socket, handle, supports_wasapi_shared_initialization))
         }
         .await;
-        let (socket, engine_handle) = match result {
+        let (socket, engine_handle, supports_wasapi_shared_initialization) = match result {
             Ok(pair) => pair,
             Err(error) => {
                 engine.stop().await?;
@@ -240,6 +245,7 @@ impl LiveSession {
         self.engine_handle = engine_handle;
         self.record = record;
         self.socket = socket;
+        self.supports_wasapi_shared_initialization = supports_wasapi_shared_initialization;
         Ok(())
     }
 
@@ -314,17 +320,12 @@ impl LiveSession {
         &mut self,
         endpoint_id: &str,
     ) -> Result<WasapiSharedInitialization, SupervisorError> {
-        match request(
+        initialize_wasapi_shared_request(
             &mut self.socket,
-            EngineCommand::InitializeWasapiShared {
-                endpoint_id: endpoint_id.to_owned(),
-            },
+            self.supports_wasapi_shared_initialization,
+            endpoint_id,
         )
-        .await?
-        {
-            EngineEvent::WasapiSharedInitialized(initialized) => Ok(initialized),
-            _ => Err(SupervisorError::Rejected),
-        }
+        .await
     }
     pub async fn sidecar_healthy(&self) -> Result<bool, SupervisorError> {
         sidecar_health(&self.sidecar, &self.token, self.record.session_id)
@@ -358,7 +359,10 @@ impl LiveSession {
     }
 }
 
-async fn connect(record: &Record, token: &BearerToken) -> Result<TcpStream, SupervisorError> {
+async fn connect(
+    record: &Record,
+    token: &BearerToken,
+) -> Result<(TcpStream, bool), SupervisorError> {
     timeout(IO_TIMEOUT, async {
         let mut socket = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, record.port))
             .await
@@ -382,10 +386,31 @@ async fn connect(record: &Record, token: &BearerToken) -> Result<TcpStream, Supe
         {
             return Err(SupervisorError::Authentication);
         }
-        Ok(socket)
+        Ok((socket, hello.supports_wasapi_shared_initialization))
     })
     .await
     .map_err(|_| SupervisorError::Connection)?
+}
+
+async fn initialize_wasapi_shared_request(
+    socket: &mut TcpStream,
+    supported: bool,
+    endpoint_id: &str,
+) -> Result<WasapiSharedInitialization, SupervisorError> {
+    if !supported {
+        return Err(SupervisorError::Rejected);
+    }
+    match request(
+        socket,
+        EngineCommand::InitializeWasapiShared {
+            endpoint_id: endpoint_id.to_owned(),
+        },
+    )
+    .await?
+    {
+        EngineEvent::WasapiSharedInitialized(initialized) => Ok(initialized),
+        _ => Err(SupervisorError::Rejected),
+    }
 }
 
 async fn request(
@@ -415,6 +440,52 @@ async fn attach(socket: &mut TcpStream, generation: u64) -> Result<(), Superviso
     {
         EngineEvent::Attached => Ok(()),
         _ => Err(SupervisorError::Rejected),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unsupported_shared_initialization_is_rejected_without_consuming_the_connection() {
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut client = TcpStream::connect(address).await.unwrap();
+        let (mut server, _) = listener.accept().await.unwrap();
+        let engine_id = Uuid::new_v4();
+        let server_task = tokio::spawn(async move {
+            assert_eq!(
+                FrameCodec::read(&mut server).await.unwrap(),
+                EngineCommand::Health
+            );
+            FrameCodec::write(
+                &mut server,
+                &EngineEvent::Health(HealthSnapshot {
+                    engine_id,
+                    state: "attached".into(),
+                    orphaned: false,
+                    supervisor_generation: 1,
+                    started_ns: 1,
+                    lease_deadline_ns: 2,
+                    extensions: Default::default(),
+                }),
+            )
+            .await
+            .unwrap();
+        });
+
+        assert_eq!(
+            initialize_wasapi_shared_request(&mut client, false, "endpoint-1").await,
+            Err(SupervisorError::Rejected)
+        );
+        assert!(matches!(
+            request(&mut client, EngineCommand::Health).await.unwrap(),
+            EngineEvent::Health(_)
+        ));
+        server_task.await.unwrap();
     }
 }
 

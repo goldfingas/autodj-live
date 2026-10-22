@@ -62,6 +62,10 @@ sample representations, ASIO, physical channel names, an initialized buffer
 size, stable playback, or measured latency. Refreshing the inventory clears
 probe results. When the shell reattaches to an older compatible engine, Setup
 marks absent evidence unavailable instead of treating it as driver rejection.
+The same compatibility boundary applies to shared-buffer initialization: an
+older engine's handshake does not advertise that command, so the supervisor
+rejects it locally without writing an unknown command or disconnecting the
+otherwise compatible session.
 
 **Check shared buffer** is a separate explicit action. It configures a fresh
 client as non-offloaded Media audio, re-queries the valid shared-engine periods,
@@ -76,6 +80,19 @@ evidence, and channel-route validation, including separate master/cue paths.
 The explicit shared-buffer check briefly opens WASAPI hardware; the library
 does not render audio, publish routes to a callback, or establish ASIO support,
 stable WASAPI playback, or latency guarantees.
+
+Successful hardware initialization is deliberately not part of the default
+workspace suite because an active endpoint may legitimately be held in
+exclusive mode. To run the opt-in integration test against a selected endpoint:
+
+```powershell
+$env:AUTODJ_LIVE_WASAPI_ENDPOINT_ID = '{endpoint-id}'
+cargo test -p autodj-live-supervisor --test supervision active_supervisor_can_initialize_and_release_an_active_wasapi_shared_buffer -- --ignored --exact
+```
+
+Use an ID returned by **Refresh audio devices** and clear the environment
+variable afterward. Failure is evidence for that endpoint's current state,
+not a repository-wide test failure.
 
 Use the smallest relevant command while iterating, then run the foundation
 gate before handoff:

@@ -1,5 +1,5 @@
 use autodj_live_protocol::{
-    BearerToken, HealthSnapshot, ProtocolError, ProtocolVersion, WasapiCapabilities,
+    BearerToken, HealthSnapshot, ProtocolError, ProtocolVersion, ServerHello, WasapiCapabilities,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -108,6 +108,28 @@ fn capabilities_from_an_older_engine_mark_rate_probe_unavailable() {
     let decoded: WasapiCapabilities = rmp_serde::from_slice(&encoded).unwrap();
     assert!(decoded.exclusive_shared_format_sample_rates_hz.is_none());
     assert!(decoded.shared_mode_engine_periods.is_none());
+}
+
+#[test]
+fn server_hello_from_an_older_engine_marks_shared_initialization_unsupported() {
+    #[derive(Serialize)]
+    struct OlderServerHello {
+        version: ProtocolVersion,
+        engine_id: uuid::Uuid,
+        pid: u32,
+        lease_deadline_ns: u64,
+    }
+
+    let encoded = rmp_serde::to_vec_named(&OlderServerHello {
+        version: ProtocolVersion::CURRENT,
+        engine_id: uuid::Uuid::nil(),
+        pid: 42,
+        lease_deadline_ns: 1_000,
+    })
+    .unwrap();
+    let decoded: ServerHello = rmp_serde::from_slice(&encoded).unwrap();
+
+    assert!(!decoded.supports_wasapi_shared_initialization);
 }
 
 #[test]

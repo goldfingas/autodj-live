@@ -117,7 +117,6 @@ export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
 
   function render(discovery: AudioDiscovery) {
     generation += 1;
-    const currentGeneration = generation;
     endpoints.items.replaceChildren(...discovery.endpoints.map((endpoint) => {
       const item = document.createElement("li");
       item.dataset.endpointId = endpoint.id;
@@ -133,6 +132,7 @@ export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
         const result = document.createElement("p");
         result.className = "probe-result";
         probe.addEventListener("click", async () => {
+          const currentGeneration = generation;
           const restoreFocus = document.activeElement === probe;
           probe.disabled = true;
           result.textContent = "Probing WASAPI shared mix…";
@@ -162,6 +162,7 @@ export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
         const initializationResult = document.createElement("p");
         initializationResult.className = "probe-result";
         initialize.addEventListener("click", async () => {
+          const currentGeneration = generation;
           const restoreFocus = document.activeElement === initialize;
           initialize.disabled = true;
           initializationResult.textContent = "Initializing and releasing WASAPI shared bufferâ€¦";
@@ -206,6 +207,7 @@ export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
   }
 
   refresh.addEventListener("click", async () => {
+    generation += 1;
     const restoreFocus = document.activeElement === refresh;
     refresh.disabled = true;
     outcome.textContent = "Refreshing audio devices…";

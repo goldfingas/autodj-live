@@ -121,6 +121,67 @@ describe("audio setup discovery", () => {
       .toBe("Found 3 audio endpoints and 1 registered ASIO drivers.");
   });
 
+  test("refresh invalidates shared-buffer evidence before discovery finishes", async () => {
+    let finishRefresh: { value?: (discovery: AudioDiscovery) => void } = {};
+    let finishInitialization: { value?: (result: typeof INITIALIZED) => void } = {};
+    const refreshPending = new Promise<AudioDiscovery>((done) => { finishRefresh.value = done; });
+    const initializationPending = new Promise<typeof INITIALIZED>((done) => {
+      finishInitialization.value = done;
+    });
+    const discover = vi.fn()
+      .mockResolvedValueOnce(DISCOVERY)
+      .mockReturnValueOnce(refreshPending);
+    mountAudioSetup(document.body, {
+      discover,
+      probe: vi.fn(),
+      initializeShared: vi.fn().mockReturnValue(initializationPending),
+    });
+    const refresh = document.querySelector("button") as HTMLButtonElement;
+    refresh.click();
+    await vi.waitFor(() => expect(document.querySelector("[data-initialize-wasapi-shared]")).not.toBeNull());
+    (document.querySelector("[data-initialize-wasapi-shared]") as HTMLButtonElement).click();
+    refresh.click();
+    await vi.waitFor(() => expect(discover).toHaveBeenCalledTimes(2));
+
+    finishInitialization.value?.(INITIALIZED);
+    await Promise.resolve();
+
+    expect(document.body.textContent).not.toContain("Shared buffer initialized and released");
+    finishRefresh.value?.(DISCOVERY);
+    await vi.waitFor(() => expect(refresh.disabled).toBe(false));
+  });
+
+  test("failed refresh invalidates old evidence but leaves the existing action usable", async () => {
+    let finishInitialization: { value?: (result: typeof INITIALIZED) => void } = {};
+    const initializationPending = new Promise<typeof INITIALIZED>((done) => {
+      finishInitialization.value = done;
+    });
+    const initializeShared = vi.fn()
+      .mockReturnValueOnce(initializationPending)
+      .mockResolvedValueOnce(INITIALIZED);
+    const discover = vi.fn()
+      .mockResolvedValueOnce(DISCOVERY)
+      .mockRejectedValueOnce(new Error("private refresh detail"));
+    mountAudioSetup(document.body, { discover, probe: vi.fn(), initializeShared });
+    const refresh = document.querySelector("button") as HTMLButtonElement;
+    refresh.click();
+    await vi.waitFor(() => expect(document.querySelector("[data-initialize-wasapi-shared]")).not.toBeNull());
+    const initialize = document.querySelector("[data-initialize-wasapi-shared]") as HTMLButtonElement;
+    initialize.click();
+    refresh.click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Audio devices could not be refreshed."));
+
+    finishInitialization.value?.(INITIALIZED);
+    await Promise.resolve();
+    expect(document.body.textContent).not.toContain("Shared buffer initialized and released");
+
+    initialize.click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain(
+      "Shared buffer initialized and released",
+    ));
+    expect(initializeShared).toHaveBeenCalledTimes(2);
+  });
+
   test("renders distinct endpoint identities and unprobed ASIO registrations", async () => {
     const discover = vi.fn().mockResolvedValue(DISCOVERY);
     mountAudioSetup(document.body, { discover, probe: vi.fn(), initializeShared: vi.fn() });

@@ -104,7 +104,7 @@ Expected: compilation/type failures and UI failures because the new shell/API ac
 
 Pass the typed operation through the production backend and Tauri command. Add one button/result per active endpoint, preserve discovery-generation and focus behavior, and keep all failure text generic. Update contributor and evidence-limit documentation.
 
-- [ ] **Step 4: Verify, gather native evidence, review, and synchronize**
+- [x] **Step 4: Verify, gather native evidence, review, and synchronize**
 
 Run Rust formatting, Clippy, the full Rust workspace suite, all 17+ UI tests, the app check/lint/build commands, six workspace-policy tests, architecture checks, and `git diff --check`. Run one explicit native initialization against a connected active endpoint and record only the endpoint format, requested frames, allocated frames, and the fact that the stream was never started.
 

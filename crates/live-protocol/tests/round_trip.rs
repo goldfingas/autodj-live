@@ -55,6 +55,7 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
         engine_id,
         pid: 42,
         lease_deadline_ns: 31_000_000_000,
+        supports_wasapi_shared_initialization: true,
     })
     .await;
     assert_framed_round_trip(&health).await;
