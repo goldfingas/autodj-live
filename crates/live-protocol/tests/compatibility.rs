@@ -111,7 +111,7 @@ fn capabilities_from_an_older_engine_mark_rate_probe_unavailable() {
 }
 
 #[test]
-fn server_hello_from_an_older_engine_marks_shared_initialization_unsupported() {
+fn server_hello_from_an_older_engine_marks_new_audio_operations_unsupported() {
     #[derive(Serialize)]
     struct OlderServerHello {
         version: ProtocolVersion,
@@ -130,6 +130,7 @@ fn server_hello_from_an_older_engine_marks_shared_initialization_unsupported() {
     let decoded: ServerHello = rmp_serde::from_slice(&encoded).unwrap();
 
     assert!(!decoded.supports_wasapi_shared_initialization);
+    assert!(!decoded.supports_wasapi_shared_output_test);
 }
 
 #[test]

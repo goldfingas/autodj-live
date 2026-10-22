@@ -4,7 +4,7 @@ use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec, HealthSnapshot,
     ProtocolError, ProtocolVersion, ServerHello, SharedModeEnginePeriods, WasapiCapabilities,
-    WasapiSharedInitialization,
+    WasapiSharedInitialization, WasapiSharedOutputTest,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::AsyncWriteExt;
@@ -56,6 +56,7 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
         pid: 42,
         lease_deadline_ns: 31_000_000_000,
         supports_wasapi_shared_initialization: true,
+        supports_wasapi_shared_output_test: true,
     })
     .await;
     assert_framed_round_trip(&health).await;
@@ -67,6 +68,9 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             endpoint_id: "endpoint-1".into(),
         },
         EngineCommand::InitializeWasapiShared {
+            endpoint_id: "endpoint-1".into(),
+        },
+        EngineCommand::RunWasapiSharedOutputTest {
             endpoint_id: "endpoint-1".into(),
         },
         EngineCommand::Attach {
@@ -137,6 +141,14 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             endpoint_id: "endpoint-1".into(),
             requested_period_frames: 128,
             buffer_frames: 480,
+        }),
+        EngineEvent::WasapiSharedOutputTested(WasapiSharedOutputTest {
+            endpoint_id: "endpoint-1".into(),
+            requested_period_frames: 128,
+            buffer_frames: 480,
+            event_notifications: 100,
+            silent_frames_submitted: 48_480,
+            elapsed_ms: 1_004,
         }),
     ];
     for event in events {

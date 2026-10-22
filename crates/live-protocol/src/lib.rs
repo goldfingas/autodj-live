@@ -62,6 +62,8 @@ pub struct ServerHello {
     pub lease_deadline_ns: u64,
     #[serde(default)]
     pub supports_wasapi_shared_initialization: bool,
+    #[serde(default)]
+    pub supports_wasapi_shared_output_test: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -150,11 +152,23 @@ pub struct WasapiSharedInitialization {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasapiSharedOutputTest {
+    pub endpoint_id: String,
+    pub requested_period_frames: u32,
+    pub buffer_frames: u32,
+    pub event_notifications: u32,
+    pub silent_frames_submitted: u64,
+    pub elapsed_ms: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum EngineCommand {
     Health,
     DiscoverAudio,
     ProbeWasapi { endpoint_id: String },
     InitializeWasapiShared { endpoint_id: String },
+    RunWasapiSharedOutputTest { endpoint_id: String },
     Attach { supervisor_generation: u64 },
     Detach,
     Shutdown,
@@ -167,6 +181,7 @@ pub enum EngineEvent {
     AudioDiscovery(AudioDiscovery),
     WasapiCapabilities(WasapiCapabilities),
     WasapiSharedInitialized(WasapiSharedInitialization),
+    WasapiSharedOutputTested(WasapiSharedOutputTest),
     Stopping,
     Error { message: String },
 }

@@ -2,11 +2,14 @@ use super::*;
 use ::windows::{
     Win32::{
         Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
-        Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, S_OK},
+        Foundation::{
+            CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, HANDLE, S_OK, WAIT_OBJECT_0,
+        },
         Media::Audio::{
-            AUDCLNT_E_UNSUPPORTED_FORMAT, AUDCLNT_SHAREMODE_EXCLUSIVE, AudioCategory_Media,
-            AudioClientProperties, DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL,
-            IAudioClient, IAudioClient3, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
+            AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_E_UNSUPPORTED_FORMAT, AUDCLNT_SHAREMODE_EXCLUSIVE,
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AudioCategory_Media, AudioClientProperties,
+            DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IAudioClient3,
+            IAudioRenderClient, IMMDevice, IMMDeviceEnumerator, IMMEndpoint, MMDeviceEnumerator,
             WAVEFORMATEX, eCapture, eRender,
         },
         System::{
@@ -16,6 +19,7 @@ use ::windows::{
                 StructuredStorage::PropVariantToStringAlloc,
             },
             Registry::*,
+            Threading::{CreateEventW, WaitForSingleObject},
         },
     },
     core::{GUID, HRESULT, Interface, PCWSTR, PWSTR, w},
@@ -33,6 +37,38 @@ struct TaskMemory(*mut std::ffi::c_void);
 impl Drop for TaskMemory {
     fn drop(&mut self) {
         unsafe { CoTaskMemFree(Some(self.0)) };
+    }
+}
+
+struct OwnedEvent(HANDLE);
+impl Drop for OwnedEvent {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
+struct StartedAudioClient {
+    client: IAudioClient,
+    started: bool,
+}
+
+impl StartedAudioClient {
+    fn stop(mut self) -> Result<(), &'static str> {
+        unsafe { self.client.Stop() }.map_err(|_| "could not stop WASAPI shared output test")?;
+        self.started = false;
+        Ok(())
+    }
+}
+
+impl Drop for StartedAudioClient {
+    fn drop(&mut self) {
+        if self.started {
+            unsafe {
+                let _ = self.client.Stop();
+            }
+        }
     }
 }
 
@@ -302,6 +338,141 @@ pub(super) fn initialize_wasapi_shared(
         endpoint_id.to_owned(),
         requested_period_frames,
         buffer_frames,
+    )
+}
+
+pub(super) fn run_wasapi_shared_output_test(
+    endpoint_id: &str,
+) -> Result<WasapiSharedOutputTest, &'static str> {
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok() }
+        .map_err(|_| "could not initialize WASAPI shared output test")?;
+    let _apartment = ComApartment;
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|_| "could not create WASAPI endpoint enumerator")?;
+    let wide: Vec<u16> = endpoint_id.encode_utf16().chain(Some(0)).collect();
+    let device = unsafe { enumerator.GetDevice(PCWSTR(wide.as_ptr())) }
+        .map_err(|_| "WASAPI endpoint is unavailable")?;
+    if unsafe { device.GetState() }.map_err(|_| "could not read WASAPI endpoint state")?
+        != DEVICE_STATE_ACTIVE
+    {
+        return Err("WASAPI endpoint is not active");
+    }
+    let endpoint: IMMEndpoint = device
+        .cast()
+        .map_err(|_| "could not read WASAPI endpoint direction")?;
+    let direction = unsafe { endpoint.GetDataFlow() }
+        .map_err(|_| "could not read WASAPI endpoint direction")?;
+    requires_render_direction(if direction == eRender {
+        Direction::Output
+    } else {
+        Direction::Input
+    })?;
+
+    let client: IAudioClient = unsafe { device.Activate(CLSCTX_INPROC_SERVER, None) }
+        .map_err(|_| "could not activate WASAPI endpoint")?;
+    let format_ptr =
+        unsafe { client.GetMixFormat() }.map_err(|_| "could not read WASAPI shared mix format")?;
+    if format_ptr.is_null() {
+        return Err("WASAPI returned no shared mix format");
+    }
+    let _format_memory = TaskMemory(format_ptr.cast());
+    validated_mix_format(unsafe { format_ptr.read_unaligned() })?;
+    let client3: IAudioClient3 = client
+        .cast()
+        .map_err(|_| "WASAPI shared output test is unavailable")?;
+    let properties = AudioClientProperties {
+        cbSize: std::mem::size_of::<AudioClientProperties>() as u32,
+        eCategory: AudioCategory_Media,
+        ..Default::default()
+    };
+    unsafe { client3.SetClientProperties(&raw const properties) }
+        .map_err(|_| "could not configure WASAPI media properties")?;
+    let mut default_frames = 0;
+    let mut fundamental_frames = 0;
+    let mut minimum_frames = 0;
+    let mut maximum_frames = 0;
+    unsafe {
+        client3.GetSharedModeEnginePeriod(
+            format_ptr,
+            &mut default_frames,
+            &mut fundamental_frames,
+            &mut minimum_frames,
+            &mut maximum_frames,
+        )
+    }
+    .map_err(|_| "could not read configured WASAPI shared engine periods")?;
+    let periods = shared_mode_engine_periods(
+        default_frames,
+        fundamental_frames,
+        minimum_frames,
+        maximum_frames,
+    )?;
+    let requested_period_frames = select_shared_period(&periods);
+    unsafe {
+        client3.InitializeSharedAudioStream(
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+            requested_period_frames,
+            format_ptr,
+            None,
+        )
+    }
+    .map_err(|_| "could not initialize WASAPI shared output test")?;
+    let buffer_frames = unsafe { client.GetBufferSize() }
+        .map_err(|_| "could not read WASAPI shared buffer size")?;
+    let event = OwnedEvent(
+        unsafe { CreateEventW(None, false, false, PCWSTR::null()) }
+            .map_err(|_| "could not create WASAPI buffer event")?,
+    );
+    unsafe { client.SetEventHandle(event.0) }
+        .map_err(|_| "could not register WASAPI buffer event")?;
+    let render: IAudioRenderClient =
+        unsafe { client.GetService() }.map_err(|_| "could not acquire WASAPI render service")?;
+    unsafe { render.GetBuffer(buffer_frames) }
+        .map_err(|_| "could not acquire initial WASAPI render buffer")?;
+    unsafe { render.ReleaseBuffer(buffer_frames, AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) }
+        .map_err(|_| "could not submit initial WASAPI silence")?;
+
+    unsafe { client.Start() }.map_err(|_| "could not start WASAPI shared output test")?;
+    let started = StartedAudioClient {
+        client: client.clone(),
+        started: true,
+    };
+    let started_at = std::time::Instant::now();
+    let mut event_notifications = 0u32;
+    let mut silent_frames_submitted = u64::from(buffer_frames);
+    while started_at.elapsed() < std::time::Duration::from_secs(1) {
+        if unsafe { WaitForSingleObject(event.0, 250) } != WAIT_OBJECT_0 {
+            return Err("WASAPI shared output event timed out");
+        }
+        event_notifications = event_notifications
+            .checked_add(1)
+            .ok_or("WASAPI shared output event count overflowed")?;
+        let padding = unsafe { client.GetCurrentPadding() }
+            .map_err(|_| "could not read WASAPI shared output padding")?;
+        let available = buffer_frames
+            .checked_sub(padding)
+            .ok_or("WASAPI returned invalid shared output padding")?;
+        if available > 0 {
+            unsafe { render.GetBuffer(available) }
+                .map_err(|_| "could not acquire WASAPI render buffer")?;
+            unsafe { render.ReleaseBuffer(available, AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) }
+                .map_err(|_| "could not submit WASAPI silence")?;
+            silent_frames_submitted = silent_frames_submitted
+                .checked_add(u64::from(available))
+                .ok_or("WASAPI silent frame count overflowed")?;
+        }
+    }
+    let elapsed_ms = u64::try_from(started_at.elapsed().as_millis())
+        .map_err(|_| "WASAPI shared output elapsed time overflowed")?;
+    started.stop()?;
+    wasapi_shared_output_test(
+        endpoint_id.to_owned(),
+        requested_period_frames,
+        buffer_frames,
+        event_notifications,
+        silent_frames_submitted,
+        elapsed_ms,
     )
 }
 

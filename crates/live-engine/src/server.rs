@@ -9,7 +9,7 @@ use std::{
 use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     ClientHello, EngineCommand, EngineEvent, FrameCodec, ProtocolVersion, ServerHello,
-    WasapiCapabilities, WasapiSharedInitialization,
+    WasapiCapabilities, WasapiSharedInitialization, WasapiSharedOutputTest,
 };
 use subtle::ConstantTimeEq;
 use tokio::{
@@ -27,6 +27,7 @@ use crate::{
 
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const AUDIO_OPERATION_TIMEOUT: Duration = Duration::from_millis(1_500);
+const SHARED_OUTPUT_TEST_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_CLIENTS: usize = 64;
 
 #[derive(Clone, Default)]
@@ -146,6 +147,7 @@ async fn serve(
         pid: std::process::id(),
         lease_deadline_ns: deadline,
         supports_wasapi_shared_initialization: true,
+        supports_wasapi_shared_output_test: true,
     };
     if !send(&mut socket, &response).await {
         return;
@@ -216,6 +218,23 @@ async fn serve(
                             }
                         }
                     },
+                    EngineCommand::RunWasapiSharedOutputTest { endpoint_id } => match lease.authorize_audio_operation(id) {
+                        Err(event) => event,
+                        Ok(()) => {
+                            drop(lease);
+                            let tested = match audio_worker.start(move || live_audio::discovery::run_wasapi_shared_output_test(&endpoint_id)) {
+                                Ok(receiver) => Some(timeout(SHARED_OUTPUT_TEST_TIMEOUT, receiver).await),
+                                Err(()) => None,
+                            };
+                            let still_owner = state.lock().await.authorize_audio_operation(id);
+                            match (tested, still_owner) {
+                                (Some(Ok(Ok(Ok(tested)))), Ok(())) => EngineEvent::WasapiSharedOutputTested(map_wasapi_shared_output_test(tested)),
+                                (None, Ok(())) => EngineEvent::Error { message: "audio operation already in progress".into() },
+                                (_, Err(event)) => event,
+                                _ => EngineEvent::Error { message: "WASAPI shared output test failed".into() },
+                            }
+                        }
+                    },
                     other => lease.command(id, &replaced, other),
                 }
             }
@@ -235,6 +254,19 @@ fn map_wasapi_shared_initialization(
         endpoint_id: initialized.endpoint_id,
         requested_period_frames: initialized.requested_period_frames,
         buffer_frames: initialized.buffer_frames,
+    }
+}
+
+fn map_wasapi_shared_output_test(
+    tested: live_audio::discovery::WasapiSharedOutputTest,
+) -> WasapiSharedOutputTest {
+    WasapiSharedOutputTest {
+        endpoint_id: tested.endpoint_id,
+        requested_period_frames: tested.requested_period_frames,
+        buffer_frames: tested.buffer_frames,
+        event_notifications: tested.event_notifications,
+        silent_frames_submitted: tested.silent_frames_submitted,
+        elapsed_ms: tested.elapsed_ms,
     }
 }
 

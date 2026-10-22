@@ -62,6 +62,16 @@ pub struct WasapiSharedInitialization {
     pub buffer_frames: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WasapiSharedOutputTest {
+    pub endpoint_id: String,
+    pub requested_period_frames: u32,
+    pub buffer_frames: u32,
+    pub event_notifications: u32,
+    pub silent_frames_submitted: u64,
+    pub elapsed_ms: u64,
+}
+
 impl SharedModeEnginePeriods {
     pub fn supports_period_frames(&self, frames: u32) -> bool {
         frames >= self.minimum_frames
@@ -145,6 +155,20 @@ pub fn initialize_wasapi_shared(
         .map_err(|_| "WASAPI shared initialization worker panicked")?
 }
 
+/// Blocking, control-thread shared render exercise. It submits silence for
+/// one second, then stops and releases the stream before returning.
+pub fn run_wasapi_shared_output_test(
+    endpoint_id: &str,
+) -> Result<WasapiSharedOutputTest, &'static str> {
+    let endpoint_id = endpoint_id.to_owned();
+    std::thread::Builder::new()
+        .name("live-audio-wasapi-silent-output".into())
+        .spawn(move || windows::run_wasapi_shared_output_test(&endpoint_id))
+        .map_err(|_| "could not start WASAPI shared output test")?
+        .join()
+        .map_err(|_| "WASAPI shared output test worker panicked")?
+}
+
 fn select_shared_period(periods: &SharedModeEnginePeriods) -> u32 {
     const TARGET_FRAMES: u32 = 128;
     if periods.supports_period_frames(TARGET_FRAMES) {
@@ -166,6 +190,41 @@ fn wasapi_shared_initialization(
         endpoint_id,
         requested_period_frames,
         buffer_frames,
+    })
+}
+
+fn requires_render_direction(direction: Direction) -> Result<(), &'static str> {
+    if direction == Direction::Output {
+        Ok(())
+    } else {
+        Err("WASAPI endpoint is not a render endpoint")
+    }
+}
+
+fn wasapi_shared_output_test(
+    endpoint_id: String,
+    requested_period_frames: u32,
+    buffer_frames: u32,
+    event_notifications: u32,
+    silent_frames_submitted: u64,
+    elapsed_ms: u64,
+) -> Result<WasapiSharedOutputTest, &'static str> {
+    if endpoint_id.is_empty()
+        || requested_period_frames == 0
+        || buffer_frames == 0
+        || event_notifications == 0
+        || silent_frames_submitted == 0
+        || elapsed_ms < 1_000
+    {
+        return Err("WASAPI returned invalid shared output evidence");
+    }
+    Ok(WasapiSharedOutputTest {
+        endpoint_id,
+        requested_period_frames,
+        buffer_frames,
+        event_notifications,
+        silent_frames_submitted,
+        elapsed_ms,
     })
 }
 
@@ -331,6 +390,39 @@ mod tests {
             wasapi_shared_initialization(String::new(), 128, 480),
             wasapi_shared_initialization("endpoint-1".into(), 0, 480),
             wasapi_shared_initialization("endpoint-1".into(), 128, 0),
+        ] {
+            assert!(malformed.is_err());
+        }
+    }
+
+    #[test]
+    fn shared_output_test_requires_render_direction() {
+        assert!(requires_render_direction(Direction::Output).is_ok());
+        assert!(requires_render_direction(Direction::Input).is_err());
+    }
+
+    #[test]
+    fn shared_output_test_requires_complete_one_second_evidence() {
+        let valid = || wasapi_shared_output_test("endpoint-1".into(), 128, 480, 100, 48_480, 1_000);
+        assert_eq!(
+            valid().unwrap(),
+            WasapiSharedOutputTest {
+                endpoint_id: "endpoint-1".into(),
+                requested_period_frames: 128,
+                buffer_frames: 480,
+                event_notifications: 100,
+                silent_frames_submitted: 48_480,
+                elapsed_ms: 1_000,
+            }
+        );
+
+        for malformed in [
+            wasapi_shared_output_test(String::new(), 128, 480, 100, 48_480, 1_000),
+            wasapi_shared_output_test("endpoint-1".into(), 0, 480, 100, 48_480, 1_000),
+            wasapi_shared_output_test("endpoint-1".into(), 128, 0, 100, 48_480, 1_000),
+            wasapi_shared_output_test("endpoint-1".into(), 128, 480, 0, 48_480, 1_000),
+            wasapi_shared_output_test("endpoint-1".into(), 128, 480, 100, 0, 1_000),
+            wasapi_shared_output_test("endpoint-1".into(), 128, 480, 100, 48_480, 999),
         ] {
             assert!(malformed.is_err());
         }

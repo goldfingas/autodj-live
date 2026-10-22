@@ -138,6 +138,25 @@ async fn active_supervisor_can_initialize_and_release_an_active_wasapi_shared_bu
 }
 
 #[tokio::test]
+#[ignore = "requires AUTODJ_LIVE_WASAPI_OUTPUT_ENDPOINT_ID naming a render endpoint available for shared output"]
+async fn active_supervisor_can_run_a_bounded_wasapi_shared_output_test() {
+    let config = config();
+    let mut session = LiveSupervisor::launch(config).await.unwrap();
+    let endpoint_id = std::env::var("AUTODJ_LIVE_WASAPI_OUTPUT_ENDPOINT_ID").unwrap();
+    let tested = session
+        .run_wasapi_shared_output_test(&endpoint_id)
+        .await
+        .unwrap();
+    assert_eq!(tested.endpoint_id, endpoint_id);
+    assert!(tested.requested_period_frames > 0);
+    assert!(tested.buffer_frames > 0);
+    assert!(tested.event_notifications > 0);
+    assert!(tested.silent_frames_submitted > 0);
+    assert!(tested.elapsed_ms >= 1_000);
+    session.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn malformed_noisy_oversized_and_missing_descriptors_reap_child_with_fixed_errors() {
     for (mode, expected) in [
         ("malformed", SupervisorError::InvalidDescriptor),

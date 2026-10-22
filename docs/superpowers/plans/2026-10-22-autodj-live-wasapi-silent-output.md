@@ -52,33 +52,33 @@
 - Produces: `EngineCommand::RunWasapiSharedOutputTest { endpoint_id: String }`, `EngineEvent::WasapiSharedOutputTested(WasapiSharedOutputTest)`, and default-false `ServerHello::supports_wasapi_shared_output_test`.
 - Produces: `LiveSession::run_wasapi_shared_output_test(&mut self, endpoint_id: &str) -> Result<WasapiSharedOutputTest, SupervisorError>`.
 
-- [ ] **Step 1: Write failing native value and direction tests**
+- [x] **Step 1: Write failing native value and direction tests**
 
 In `discovery.rs`, add tests named `shared_output_test_requires_render_direction` and `shared_output_test_requires_complete_one_second_evidence`. Assert only `Direction::Output` is accepted; valid evidence includes nonempty ID, positive period/buffer/events/frames and `elapsed_ms >= 1_000`; separately assert rejection for an empty ID and each zero field and for `elapsed_ms == 999`.
 
-- [ ] **Step 2: Write failing protocol and compatibility tests**
+- [x] **Step 2: Write failing protocol and compatibility tests**
 
 Round-trip the command, event, and all exact result fields. Decode an older named `ServerHello` without the new capability and assert false. Add a supervisor socket test asserting unsupported execution returns `Rejected`, writes no frame, and leaves the connection usable for a following `Health` request. Extend lease tests so a non-owner cannot request the new operation.
 
-- [ ] **Step 3: Verify RED**
+- [x] **Step 3: Verify RED**
 
 Run: `cargo test -p live-audio -p autodj-live-protocol -p autodj-live-engine -p autodj-live-supervisor --lib --tests`
 
 Expected: compile/test failures for the absent type, command/event, capability, method, and direction/evidence helpers.
 
-- [ ] **Step 4: Implement the native one-second silent render**
+- [x] **Step 4: Implement the native one-second silent render**
 
 Add windows-rs `Win32_System_Threading`. In `windows.rs`, validate active state and `IMMEndpoint::GetDataFlow() == eRender`; configure and initialize `IAudioClient3` with `AUDCLNT_STREAMFLAGS_EVENTCALLBACK`; create/register an auto-reset event; acquire `IAudioRenderClient`; prefill the allocated buffer with `AUDCLNT_BUFFERFLAGS_SILENT`; start; then until `Instant` reaches one second, wait at most 250 ms, derive writable frames as `buffer_frames - GetCurrentPadding()`, and submit nonzero space as silent. Use small owned guards for the Win32 handle and started client so all error paths close/stop. Return only the validated evidence fields.
 
-- [ ] **Step 5: Implement the engine and supervisor path**
+- [x] **Step 5: Implement the engine and supervisor path**
 
 Add the typed mappings, owner authorization, existing single-flight worker execution, new default-false hello capability, local supervisor capability rejection, and generic `"WASAPI shared output test failed"` engine error. Do not alter the healthy connection when the capability is absent.
 
-- [ ] **Step 6: Make the hardware success test opt-in**
+- [x] **Step 6: Make the hardware success test opt-in**
 
 Add an ignored Windows integration test using only `AUTODJ_LIVE_WASAPI_OUTPUT_ENDPOINT_ID`. Assert matching identity, positive period/buffer/events/frames, and at least 1,000 elapsed milliseconds. Do not select the first active endpoint or make hardware availability part of the default suite.
 
-- [ ] **Step 7: Verify GREEN and commit**
+- [x] **Step 7: Verify GREEN and commit**
 
 Run `cargo fmt --all -- --check`, `cargo clippy -p live-audio -p autodj-live-protocol -p autodj-live-engine -p autodj-live-supervisor --all-targets -- -D warnings`, and the focused test command from Step 3. Require zero failures with only the selected-hardware test ignored.
 
