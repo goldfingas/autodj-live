@@ -80,7 +80,9 @@ impl Lease {
         }
         match command {
             EngineCommand::Health => EngineEvent::Health(self.health()),
-            EngineCommand::DiscoverAudio | EngineCommand::ProbeWasapi { .. } => {
+            EngineCommand::DiscoverAudio
+            | EngineCommand::ProbeWasapi { .. }
+            | EngineCommand::InitializeWasapiShared { .. } => {
                 match self.authorize_audio_operation(id) {
                     Ok(()) => error("audio operation must be dispatched by the engine server"),
                     Err(event) => event,
@@ -175,6 +177,18 @@ mod tests {
                 8,
                 &stranger_signal,
                 EngineCommand::ProbeWasapi {
+                    endpoint_id: "endpoint-1".into()
+                }
+            ),
+            EngineEvent::Error {
+                message: "audio operation requires the active supervisor".into()
+            }
+        );
+        assert_eq!(
+            lease.command(
+                8,
+                &stranger_signal,
+                EngineCommand::InitializeWasapiShared {
                     endpoint_id: "endpoint-1".into()
                 }
             ),

@@ -140,10 +140,19 @@ pub struct SharedModeEnginePeriods {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasapiSharedInitialization {
+    pub endpoint_id: String,
+    pub requested_period_frames: u32,
+    pub buffer_frames: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum EngineCommand {
     Health,
     DiscoverAudio,
     ProbeWasapi { endpoint_id: String },
+    InitializeWasapiShared { endpoint_id: String },
     Attach { supervisor_generation: u64 },
     Detach,
     Shutdown,
@@ -155,6 +164,7 @@ pub enum EngineEvent {
     Health(HealthSnapshot),
     AudioDiscovery(AudioDiscovery),
     WasapiCapabilities(WasapiCapabilities),
+    WasapiSharedInitialized(WasapiSharedInitialization),
     Stopping,
     Error { message: String },
 }

@@ -122,6 +122,31 @@ async fn active_supervisor_can_probe_an_active_wasapi_endpoint() {
 }
 
 #[tokio::test]
+async fn active_supervisor_can_initialize_and_release_an_active_wasapi_shared_buffer() {
+    let config = config();
+    let mut session = LiveSupervisor::launch(config).await.unwrap();
+    let discovery = session.audio_discovery().await.unwrap();
+    if let Some(endpoint) = discovery
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.state == autodj_live_protocol::AudioEndpointState::Active)
+    {
+        let initialized = session
+            .initialize_wasapi_shared(&endpoint.id)
+            .await
+            .unwrap();
+        assert_eq!(initialized.endpoint_id, endpoint.id);
+        assert!(initialized.requested_period_frames > 0);
+        assert!(initialized.buffer_frames > 0);
+    }
+    assert_eq!(
+        session.initialize_wasapi_shared("missing-endpoint").await,
+        Err(SupervisorError::Rejected)
+    );
+    session.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn malformed_noisy_oversized_and_missing_descriptors_reap_child_with_fixed_errors() {
     for (mode, expected) in [
         ("malformed", SupervisorError::InvalidDescriptor),

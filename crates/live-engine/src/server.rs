@@ -9,7 +9,7 @@ use std::{
 use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     ClientHello, EngineCommand, EngineEvent, FrameCodec, ProtocolVersion, ServerHello,
-    WasapiCapabilities,
+    WasapiCapabilities, WasapiSharedInitialization,
 };
 use subtle::ConstantTimeEq;
 use tokio::{
@@ -198,6 +198,23 @@ async fn serve(
                             }
                         }
                     },
+                    EngineCommand::InitializeWasapiShared { endpoint_id } => match lease.authorize_audio_operation(id) {
+                        Err(event) => event,
+                        Ok(()) => {
+                            drop(lease);
+                            let initialized = match audio_worker.start(move || live_audio::discovery::initialize_wasapi_shared(&endpoint_id)) {
+                                Ok(receiver) => Some(timeout(AUDIO_OPERATION_TIMEOUT, receiver).await),
+                                Err(()) => None,
+                            };
+                            let still_owner = state.lock().await.authorize_audio_operation(id);
+                            match (initialized, still_owner) {
+                                (Some(Ok(Ok(Ok(initialized)))), Ok(())) => EngineEvent::WasapiSharedInitialized(map_wasapi_shared_initialization(initialized)),
+                                (None, Ok(())) => EngineEvent::Error { message: "audio operation already in progress".into() },
+                                (_, Err(event)) => event,
+                                _ => EngineEvent::Error { message: "WASAPI shared initialization failed".into() },
+                            }
+                        }
+                    },
                     other => lease.command(id, &replaced, other),
                 }
             }
@@ -208,6 +225,16 @@ async fn serve(
         }
     }
     state.lock().await.disconnect(id);
+}
+
+fn map_wasapi_shared_initialization(
+    initialized: live_audio::discovery::WasapiSharedInitialization,
+) -> WasapiSharedInitialization {
+    WasapiSharedInitialization {
+        endpoint_id: initialized.endpoint_id,
+        requested_period_frames: initialized.requested_period_frames,
+        buffer_frames: initialized.buffer_frames,
+    }
 }
 
 fn map_wasapi(capabilities: live_audio::discovery::WasapiCapabilities) -> WasapiCapabilities {

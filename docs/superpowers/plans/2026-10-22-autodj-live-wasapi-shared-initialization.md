@@ -51,21 +51,21 @@
 - Produces: `EngineEvent::WasapiSharedInitialized(WasapiSharedInitialization)`
 - Produces: `LiveSession::initialize_wasapi_shared(&mut self, endpoint_id: &str)`
 
-- [ ] **Step 1: Write failing Rust tests**
+- [x] **Step 1: Write failing Rust tests**
 
 Add pure tests proving aligned 128 is selected, in-range-but-misaligned 128 falls back to default, out-of-range 128 falls back to default, and zero/empty initialization evidence is rejected. Add protocol round trips, active-owner authorization, and the supervisor's native integration assertion.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cargo test -p live-audio -p autodj-live-protocol -p autodj-live-engine -p autodj-live-supervisor`
 
 Expected: compilation fails because the new result, command, event, and methods do not exist.
 
-- [ ] **Step 3: Implement the minimal native and authenticated path**
+- [x] **Step 3: Implement the minimal native and authenticated path**
 
 Add the pure selector/result validation. On Windows activate the requested active endpoint, validate its mix descriptor, set `AudioCategory_Media`, re-query and validate periods, choose the period, call `InitializeSharedAudioStream(0, ...)`, read `GetBufferSize`, and return validated scalar evidence. Extend the engine worker dispatch, mapping, lease authorization, protocol, and supervisor request path.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 Run the focused command from Step 2, `cargo fmt --all -- --check`, and `cargo clippy --workspace --all-targets -- -D warnings`.
 

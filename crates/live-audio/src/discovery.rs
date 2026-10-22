@@ -1,4 +1,4 @@
-//! Read-only inventory, not audio capability negotiation.
+//! Control-thread Windows audio inventory, probing, and transient buffer checks.
 
 mod windows;
 
@@ -53,6 +53,13 @@ pub struct SharedModeEnginePeriods {
     pub fundamental_frames: u32,
     pub minimum_frames: u32,
     pub maximum_frames: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WasapiSharedInitialization {
+    pub endpoint_id: String,
+    pub requested_period_frames: u32,
+    pub buffer_frames: u32,
 }
 
 impl SharedModeEnginePeriods {
@@ -122,6 +129,44 @@ pub fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'static st
         .map_err(|_| "could not start WASAPI probe")?
         .join()
         .map_err(|_| "WASAPI probe worker panicked")?
+}
+
+/// Blocking, control-thread shared-buffer check. The stream is never started
+/// and the initialized client is released before this function returns.
+pub fn initialize_wasapi_shared(
+    endpoint_id: &str,
+) -> Result<WasapiSharedInitialization, &'static str> {
+    let endpoint_id = endpoint_id.to_owned();
+    std::thread::Builder::new()
+        .name("live-audio-wasapi-shared-init".into())
+        .spawn(move || windows::initialize_wasapi_shared(&endpoint_id))
+        .map_err(|_| "could not start WASAPI shared initialization")?
+        .join()
+        .map_err(|_| "WASAPI shared initialization worker panicked")?
+}
+
+fn select_shared_period(periods: &SharedModeEnginePeriods) -> u32 {
+    const TARGET_FRAMES: u32 = 128;
+    if periods.supports_period_frames(TARGET_FRAMES) {
+        TARGET_FRAMES
+    } else {
+        periods.default_frames
+    }
+}
+
+fn wasapi_shared_initialization(
+    endpoint_id: String,
+    requested_period_frames: u32,
+    buffer_frames: u32,
+) -> Result<WasapiSharedInitialization, &'static str> {
+    if endpoint_id.is_empty() || requested_period_frames == 0 || buffer_frames == 0 {
+        return Err("WASAPI returned invalid shared initialization evidence");
+    }
+    Ok(WasapiSharedInitialization {
+        endpoint_id,
+        requested_period_frames,
+        buffer_frames,
+    })
 }
 
 fn wasapi_capabilities(
@@ -260,6 +305,34 @@ mod tests {
                 shared_mode_engine_periods(malformed.0, malformed.1, malformed.2, malformed.3)
                     .is_err()
             );
+        }
+    }
+
+    #[test]
+    fn shared_initialization_prefers_an_aligned_target_and_rejects_empty_evidence() {
+        let aligned = shared_mode_engine_periods(480, 4, 48, 480).unwrap();
+        assert_eq!(select_shared_period(&aligned), 128);
+
+        let misaligned = shared_mode_engine_periods(480, 96, 96, 480).unwrap();
+        assert_eq!(select_shared_period(&misaligned), 480);
+
+        let out_of_range = shared_mode_engine_periods(480, 32, 160, 480).unwrap();
+        assert_eq!(select_shared_period(&out_of_range), 480);
+
+        assert_eq!(
+            wasapi_shared_initialization("endpoint-1".into(), 128, 480).unwrap(),
+            WasapiSharedInitialization {
+                endpoint_id: "endpoint-1".into(),
+                requested_period_frames: 128,
+                buffer_frames: 480,
+            }
+        );
+        for malformed in [
+            wasapi_shared_initialization(String::new(), 128, 480),
+            wasapi_shared_initialization("endpoint-1".into(), 0, 480),
+            wasapi_shared_initialization("endpoint-1".into(), 128, 0),
+        ] {
+            assert!(malformed.is_err());
         }
     }
 

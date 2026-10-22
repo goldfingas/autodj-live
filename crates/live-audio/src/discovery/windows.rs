@@ -4,9 +4,10 @@ use ::windows::{
         Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, S_OK},
         Media::Audio::{
-            AUDCLNT_E_UNSUPPORTED_FORMAT, AUDCLNT_SHAREMODE_EXCLUSIVE, DEVICE_STATE,
-            DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IAudioClient3, IMMDevice,
-            IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, eCapture, eRender,
+            AUDCLNT_E_UNSUPPORTED_FORMAT, AUDCLNT_SHAREMODE_EXCLUSIVE, AudioCategory_Media,
+            AudioClientProperties, DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL,
+            IAudioClient, IAudioClient3, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
+            WAVEFORMATEX, eCapture, eRender,
         },
         System::{
             Com::{
@@ -233,6 +234,74 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
         (default_period, minimum_period, shared_mode_engine_periods),
         exclusive_shared_mix_supported,
         exclusive_shared_format_sample_rates_hz,
+    )
+}
+
+pub(super) fn initialize_wasapi_shared(
+    endpoint_id: &str,
+) -> Result<WasapiSharedInitialization, &'static str> {
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok() }
+        .map_err(|_| "could not initialize WASAPI shared-buffer check")?;
+    let _apartment = ComApartment;
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|_| "could not create WASAPI endpoint enumerator")?;
+    let wide: Vec<u16> = endpoint_id.encode_utf16().chain(Some(0)).collect();
+    let device = unsafe { enumerator.GetDevice(PCWSTR(wide.as_ptr())) }
+        .map_err(|_| "WASAPI endpoint is unavailable")?;
+    if unsafe { device.GetState() }.map_err(|_| "could not read WASAPI endpoint state")?
+        != DEVICE_STATE_ACTIVE
+    {
+        return Err("WASAPI endpoint is not active");
+    }
+    let client: IAudioClient = unsafe { device.Activate(CLSCTX_INPROC_SERVER, None) }
+        .map_err(|_| "could not activate WASAPI endpoint")?;
+    let format_ptr =
+        unsafe { client.GetMixFormat() }.map_err(|_| "could not read WASAPI shared mix format")?;
+    if format_ptr.is_null() {
+        return Err("WASAPI returned no shared mix format");
+    }
+    let _format_memory = TaskMemory(format_ptr.cast());
+    validated_mix_format(unsafe { format_ptr.read_unaligned() })?;
+    let client3: IAudioClient3 = client
+        .cast()
+        .map_err(|_| "WASAPI shared initialization is unavailable")?;
+    let properties = AudioClientProperties {
+        cbSize: std::mem::size_of::<AudioClientProperties>() as u32,
+        eCategory: AudioCategory_Media,
+        ..Default::default()
+    };
+    unsafe { client3.SetClientProperties(&raw const properties) }
+        .map_err(|_| "could not configure WASAPI media properties")?;
+    let mut default_frames = 0;
+    let mut fundamental_frames = 0;
+    let mut minimum_frames = 0;
+    let mut maximum_frames = 0;
+    unsafe {
+        client3.GetSharedModeEnginePeriod(
+            format_ptr,
+            &mut default_frames,
+            &mut fundamental_frames,
+            &mut minimum_frames,
+            &mut maximum_frames,
+        )
+    }
+    .map_err(|_| "could not read configured WASAPI shared engine periods")?;
+    let periods = shared_mode_engine_periods(
+        default_frames,
+        fundamental_frames,
+        minimum_frames,
+        maximum_frames,
+    )?;
+    let requested_period_frames = select_shared_period(&periods);
+    unsafe { client3.InitializeSharedAudioStream(0, requested_period_frames, format_ptr, None) }
+        .map_err(|_| "could not initialize WASAPI shared buffer")?;
+    let buffer_frames = unsafe { client3.GetBufferSize() }
+        .map_err(|_| "could not read WASAPI shared buffer size")?;
+    wasapi_shared_initialization(
+        endpoint_id.to_owned(),
+        requested_period_frames,
+        buffer_frames,
     )
 }
 

@@ -4,6 +4,7 @@ use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec, HealthSnapshot,
     ProtocolError, ProtocolVersion, ServerHello, SharedModeEnginePeriods, WasapiCapabilities,
+    WasapiSharedInitialization,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::AsyncWriteExt;
@@ -62,6 +63,9 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
         EngineCommand::Health,
         EngineCommand::DiscoverAudio,
         EngineCommand::ProbeWasapi {
+            endpoint_id: "endpoint-1".into(),
+        },
+        EngineCommand::InitializeWasapiShared {
             endpoint_id: "endpoint-1".into(),
         },
         EngineCommand::Attach {
@@ -127,6 +131,11 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             exclusive_shared_mix_supported: false,
             exclusive_shared_format_sample_rates_hz: Some(vec![]),
             shared_mode_engine_periods: None,
+        }),
+        EngineEvent::WasapiSharedInitialized(WasapiSharedInitialization {
+            endpoint_id: "endpoint-1".into(),
+            requested_period_frames: 128,
+            buffer_frames: 480,
         }),
     ];
     for event in events {
