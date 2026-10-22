@@ -53,13 +53,15 @@ For an active endpoint, **Probe WASAPI** reports the current shared-engine mix
 format and default/minimum engine periods. It also checks whether that exact
 descriptor is accepted in exclusive mode and tests the official 44.1, 48, and
 96 kHz rates while preserving the descriptor's channel layout and sample
-representation. It activates the Windows audio client only for those queries
-and never initializes or starts a stream. The result does not establish support
-for other channel layouts, sample representations, buffer sizes, ASIO,
-physical channel names, or measured latency. Refreshing the inventory clears
+representation. For the exact shared format it also reports the default,
+fundamental, minimum, and maximum shared-engine wake-up periods returned by
+`IAudioClient3`, including whether 128 frames is selectable. It activates the
+Windows audio client only for those queries and never initializes or starts a
+stream. The result does not establish support for other channel layouts,
+sample representations, ASIO, physical channel names, an initialized buffer
+size, stable playback, or measured latency. Refreshing the inventory clears
 probe results. When the shell reattaches to an older compatible engine, Setup
-marks official-rate evidence unavailable instead of treating an absent result
-as driver rejection.
+marks absent evidence unavailable instead of treating it as driver rejection.
 
 `cargo test -p live-audio` checks control-thread device and channel-route
 validation, including separate master/cue paths. This library does not open

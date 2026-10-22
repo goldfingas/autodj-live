@@ -25,6 +25,12 @@ const CAPABILITIES = {
   minimumPeriod100ns: 30_000,
   exclusiveSharedMixSupported: true,
   exclusiveSharedFormatSampleRatesHz: [44_100, 48_000],
+  sharedModeEnginePeriods: {
+    defaultFrames: 480,
+    fundamentalFrames: 4,
+    minimumFrames: 48,
+    maximumFrames: 480,
+  },
 };
 
 describe("audio setup discovery", () => {
@@ -126,7 +132,7 @@ describe("audio setup discovery", () => {
     resolve.value?.(CAPABILITIES);
     await vi.waitFor(() => expect(buttons[0].disabled).toBe(false));
     expect(document.body.textContent).toContain(
-      "WASAPI shared mix: 8 channels · 48,000 Hz · 32-bit. Engine periods: 10 ms default · 3 ms minimum. This exact format is supported in exclusive mode. Official exclusive rates with the same channels and sample representation: 44,100 Hz · 48,000 Hz. Other channel layouts, sample representations, buffer sizes, and ASIO untested.",
+      "WASAPI shared mix: 8 channels · 48,000 Hz · 32-bit. Engine periods: 10 ms default · 3 ms minimum. This exact format is supported in exclusive mode. Official exclusive rates with the same channels and sample representation: 44,100 Hz · 48,000 Hz. Shared engine periods: 48–480 frames · 4-frame steps · 480-frame default. The 128-frame target is available. Other channel layouts, sample representations, and ASIO untested. Stream initialization, actual buffer size, playback stability, and end-to-end latency untested.",
     );
     const announcement = document.querySelector("[data-audio-announcement]")?.textContent ?? "";
     expect(announcement).toBe("WASAPI shared mix ready.");
@@ -143,6 +149,12 @@ describe("audio setup discovery", () => {
       minimumPeriod100ns: 30_000,
       exclusiveSharedMixSupported: false,
       exclusiveSharedFormatSampleRatesHz: [],
+      sharedModeEnginePeriods: {
+        defaultFrames: 480,
+        fundamentalFrames: 32,
+        minimumFrames: 160,
+        maximumFrames: 480,
+      },
     };
     mountAudioSetup(document.body, {
       discover: vi.fn().mockResolvedValue(DISCOVERY),
@@ -153,14 +165,21 @@ describe("audio setup discovery", () => {
     (document.querySelector("[data-probe-wasapi]") as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(document.body.textContent).toContain(
-      "This exact format is not supported in exclusive mode. No official exclusive rates were accepted with the same channels and sample representation. Other channel layouts, sample representations, buffer sizes, and ASIO untested.",
+      "This exact format is not supported in exclusive mode. No official exclusive rates were accepted with the same channels and sample representation.",
     ));
+    expect(document.body.textContent).toContain(
+      "Shared engine periods: 160–480 frames · 32-frame steps · 480-frame default. The 128-frame target is not available.",
+    );
+    expect(document.body.textContent).toContain(
+      "Stream initialization, actual buffer size, playback stability, and end-to-end latency untested.",
+    );
   });
 
   test("labels official-rate evidence as unavailable when attached to an older engine", async () => {
     const olderCapabilities = {
       ...CAPABILITIES,
       exclusiveSharedFormatSampleRatesHz: null,
+      sharedModeEnginePeriods: null,
     };
     mountAudioSetup(document.body, {
       discover: vi.fn().mockResolvedValue(DISCOVERY),
@@ -174,6 +193,12 @@ describe("audio setup discovery", () => {
       "Official exclusive-rate probing is unavailable from the attached engine.",
     ));
     expect(document.body.textContent).not.toContain("No official exclusive rates were accepted");
+    expect(document.body.textContent).toContain(
+      "Shared engine-period probing is unavailable from the attached engine.",
+    );
+    expect(document.body.textContent).toContain(
+      "Stream initialization, actual buffer size, playback stability, and end-to-end latency untested.",
+    );
   });
 
   test("refresh discards stale capabilities and late probe results", async () => {

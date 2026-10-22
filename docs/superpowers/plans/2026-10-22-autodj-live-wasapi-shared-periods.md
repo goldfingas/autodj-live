@@ -80,24 +80,30 @@ Commit as `feat: probe WASAPI shared engine periods`, push `feat/autodj-live-aud
 - Consumes: `sharedModeEnginePeriods: { defaultFrames: number; fundamentalFrames: number; minimumFrames: number; maximumFrames: number } | null`.
 - Produces: distinct supported, unsupported, and unavailable 128-frame text with explicit evidence limits.
 
-- [ ] **Step 1: Write failing UI tests**
+- [x] **Step 1: Write failing UI tests**
 
 Assert a present aligned range reports the four frame values and 128-frame availability; a range with 160-frame minimum reports the target unavailable; `null` reports probing unavailable. All paths retain stream/buffer/playback/latency limits.
 
-- [ ] **Step 2: Run the focused UI test and verify it fails**
+- [x] **Step 2: Run the focused UI test and verify it fails**
 
 Run: `npm --prefix apps/autodj-live test -- --run src/setup.test.ts`
 
 Expected: FAIL because Setup does not render shared-period evidence.
 
-- [ ] **Step 3: Implement Setup copy and documentation**
+- [x] **Step 3: Implement Setup copy and documentation**
 
 Add the nullable TypeScript field and pure label calculation. Update contributor docs to distinguish engine wake-up constraints from initialized buffer size or latency.
 
-- [ ] **Step 4: Run native and full verification**
+- [x] **Step 4: Run native and full verification**
 
 Probe the connected active Rane endpoint without opening a stream. Run Rust formatting/clippy/tests, UI tests/check/lint/build, six workspace policy tests, architecture traceability, and `git diff --check`.
 
 - [ ] **Step 5: Review, commit, push, and prove synchronization**
 
 Obtain one fresh whole-change review; fix Critical/Important findings test-first and defer Minor findings. Commit as `feat: show WASAPI shared engine periods`, push the feature branch, and require local/remote divergence `0 0`. Preserve the branch without merging or opening a pull request.
+
+**Native evidence:** On 2026-10-22 the connected active `Mic 1/2 (Rane
+PERFORMER)` endpoint returned a 2-channel, 48 kHz, 32-bit shared format and
+480-frame default/fundamental/minimum/maximum shared engine periods. The
+128-frame target was not selectable for that exact format. No stream was
+initialized or started.

@@ -28,6 +28,12 @@ export interface WasapiCapabilities {
   minimumPeriod100ns: number;
   exclusiveSharedMixSupported: boolean;
   exclusiveSharedFormatSampleRatesHz: number[] | null;
+  sharedModeEnginePeriods: {
+    defaultFrames: number;
+    fundamentalFrames: number;
+    minimumFrames: number;
+    maximumFrames: number;
+  } | null;
 }
 
 export interface AudioSetupApi {
@@ -53,7 +59,11 @@ function capabilityLabel(capabilities: WasapiCapabilities): string {
     : probedRates.length > 0
       ? `Official exclusive rates with the same channels and sample representation: ${probedRates.map((rate) => `${number.format(rate)} Hz`).join(" · ")}.`
       : "No official exclusive rates were accepted with the same channels and sample representation.";
-  return `WASAPI shared mix: ${capabilities.channels} channels · ${number.format(capabilities.sampleRateHz)} Hz · ${capabilities.bitsPerSample}-bit. Engine periods: ${number.format(capabilities.defaultPeriod100ns / 10_000)} ms default · ${number.format(capabilities.minimumPeriod100ns / 10_000)} ms minimum. This exact format is ${exactExclusive} in exclusive mode. ${acceptedRates} Other channel layouts, sample representations, buffer sizes, and ASIO untested.`;
+  const periods = capabilities.sharedModeEnginePeriods;
+  const periodEvidence = periods === null
+    ? "Shared engine-period probing is unavailable from the attached engine."
+    : `Shared engine periods: ${number.format(periods.minimumFrames)}–${number.format(periods.maximumFrames)} frames · ${number.format(periods.fundamentalFrames)}-frame steps · ${number.format(periods.defaultFrames)}-frame default. The 128-frame target is ${128 >= periods.minimumFrames && 128 <= periods.maximumFrames && 128 % periods.fundamentalFrames === 0 ? "available" : "not available"}.`;
+  return `WASAPI shared mix: ${capabilities.channels} channels · ${number.format(capabilities.sampleRateHz)} Hz · ${capabilities.bitsPerSample}-bit. Engine periods: ${number.format(capabilities.defaultPeriod100ns / 10_000)} ms default · ${number.format(capabilities.minimumPeriod100ns / 10_000)} ms minimum. This exact format is ${exactExclusive} in exclusive mode. ${acceptedRates} ${periodEvidence} Other channel layouts, sample representations, and ASIO untested. Stream initialization, actual buffer size, playback stability, and end-to-end latency untested.`;
 }
 
 function list(headingText: string): { container: HTMLElement; items: HTMLUListElement } {

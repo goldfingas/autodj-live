@@ -103,3 +103,18 @@ On 2026-10-21 the authenticated engine path probed the active input endpoint
 Windows engine scheduling values, not measured input/output or scratch latency.
 No stream was initialized or started, and the Rane ASIO driver remained
 registered/unprobed.
+
+The explicit probe now also asks `IAudioClient3` for the shared engine-period
+range of that exact validated mix descriptor. The returned default,
+fundamental, minimum, and maximum values are frame-count constraints for a
+later shared-stream initialization request. They are not an initialized buffer
+size, proof of stable playback, or measured input/output or scratch latency.
+The probe still does not call `Initialize`, `InitializeSharedAudioStream`,
+`Start`, or an audio buffer service.
+
+On 2026-10-22 the connected active `Mic 1/2 (Rane PERFORMER)` endpoint
+returned 480 frames for the default, fundamental, minimum, and maximum shared
+engine periods at 48 kHz. The 128-frame target is therefore not selectable for
+that endpoint's exact shared mix format. This is one endpoint/format result,
+not a statement about the Rane ASIO driver, another Rane endpoint, or stable
+480-frame playback.
