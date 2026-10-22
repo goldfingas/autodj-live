@@ -33,23 +33,97 @@ const CAPABILITIES = {
   },
 };
 
+const INITIALIZED = {
+  endpointId: "output-1",
+  requestedPeriodFrames: 128,
+  bufferFrames: 480,
+};
+
 describe("audio setup discovery", () => {
   beforeEach(() => document.body.replaceChildren());
 
   test("waits for the DJ to request discovery", () => {
     const discover = vi.fn().mockResolvedValue(DISCOVERY);
     const probe = vi.fn().mockResolvedValue(CAPABILITIES);
-    mountAudioSetup(document.body, { discover, probe });
+    const initializeShared = vi.fn().mockResolvedValue(INITIALIZED);
+    mountAudioSetup(document.body, { discover, probe, initializeShared });
 
     expect(document.querySelector("h2")?.textContent).toBe("Audio setup");
     expect(document.querySelector("button")?.textContent).toBe("Refresh audio devices");
     expect(discover).not.toHaveBeenCalled();
     expect(probe).not.toHaveBeenCalled();
+    expect(initializeShared).not.toHaveBeenCalled();
+  });
+
+  test("initializes a shared buffer only on request and states the evidence limits", async () => {
+    const initializeShared = vi.fn().mockResolvedValue(INITIALIZED);
+    mountAudioSetup(document.body, {
+      discover: vi.fn().mockResolvedValue(DISCOVERY),
+      probe: vi.fn(),
+      initializeShared,
+    });
+    (document.querySelector("button") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelectorAll("[data-initialize-wasapi-shared]")).toHaveLength(2));
+    expect(document.body.textContent).toContain(
+      "Checking a shared buffer briefly initializes and releases it. Audio is never started.",
+    );
+    const initialize = document.querySelector("[data-initialize-wasapi-shared]") as HTMLButtonElement;
+    initialize.focus();
+    initialize.click();
+
+    expect(initializeShared).toHaveBeenCalledWith("output-1");
+    expect(initialize.disabled).toBe(true);
+    await vi.waitFor(() => expect(initialize.disabled).toBe(false));
+    expect(document.activeElement).toBe(initialize);
+    expect(document.body.textContent).toContain(
+      "Shared buffer initialized and released: requested 128 frames Â· allocated 480 frames. The stream was never started; playback stability and latency remain untested.",
+    );
+    expect(document.querySelector("[data-audio-announcement]")?.textContent)
+      .toBe("WASAPI shared buffer check ready.");
+  });
+
+  test("rejects mismatched shared-buffer evidence with generic copy", async () => {
+    mountAudioSetup(document.body, {
+      discover: vi.fn().mockResolvedValue(DISCOVERY),
+      probe: vi.fn(),
+      initializeShared: vi.fn().mockResolvedValue({ ...INITIALIZED, endpointId: "other" }),
+    });
+    (document.querySelector("button") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector("[data-initialize-wasapi-shared]")).not.toBeNull());
+    (document.querySelector("[data-initialize-wasapi-shared]") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain(
+      "WASAPI shared buffer could not be initialized.",
+    ));
+    expect(document.body.textContent).not.toContain("other");
+  });
+
+  test("refresh discards a late shared-buffer result", async () => {
+    let resolve: { value?: (result: typeof INITIALIZED) => void } = {};
+    const pending = new Promise<typeof INITIALIZED>((done) => { resolve.value = done; });
+    const discover = vi.fn().mockResolvedValue(DISCOVERY);
+    mountAudioSetup(document.body, {
+      discover,
+      probe: vi.fn(),
+      initializeShared: vi.fn().mockReturnValue(pending),
+    });
+    const refresh = document.querySelector("button") as HTMLButtonElement;
+    refresh.click();
+    await vi.waitFor(() => expect(document.querySelector("[data-initialize-wasapi-shared]")).not.toBeNull());
+    (document.querySelector("[data-initialize-wasapi-shared]") as HTMLButtonElement).click();
+    refresh.click();
+    await vi.waitFor(() => expect(discover).toHaveBeenCalledTimes(2));
+    resolve.value?.(INITIALIZED);
+    await Promise.resolve();
+
+    expect(document.body.textContent).not.toContain("Shared buffer initialized and released");
+    expect(document.querySelector("[data-audio-announcement]")?.textContent)
+      .toBe("Found 3 audio endpoints and 1 registered ASIO drivers.");
   });
 
   test("renders distinct endpoint identities and unprobed ASIO registrations", async () => {
     const discover = vi.fn().mockResolvedValue(DISCOVERY);
-    mountAudioSetup(document.body, { discover, probe: vi.fn() });
+    mountAudioSetup(document.body, { discover, probe: vi.fn(), initializeShared: vi.fn() });
     (document.querySelector("button") as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(document.querySelectorAll("[data-endpoint-id]")).toHaveLength(3));
@@ -69,7 +143,7 @@ describe("audio setup discovery", () => {
     const discover = vi.fn()
       .mockResolvedValueOnce(DISCOVERY)
       .mockResolvedValueOnce({ endpoints: [], asioDrivers: [], issues: [] });
-    mountAudioSetup(document.body, { discover, probe: vi.fn() });
+    mountAudioSetup(document.body, { discover, probe: vi.fn(), initializeShared: vi.fn() });
     const button = document.querySelector("button") as HTMLButtonElement;
     button.focus();
     button.click();
@@ -87,6 +161,7 @@ describe("audio setup discovery", () => {
     mountAudioSetup(document.body, {
       discover: vi.fn().mockRejectedValue(new Error("private detail")),
       probe: vi.fn(),
+      initializeShared: vi.fn(),
     });
     const button = document.querySelector("button") as HTMLButtonElement;
     button.click();
@@ -99,7 +174,11 @@ describe("audio setup discovery", () => {
   test("does not steal focus when the DJ moves on during refresh", async () => {
     let resolve: { value?: (discovery: AudioDiscovery) => void } = {};
     const pending = new Promise<AudioDiscovery>((done) => { resolve.value = done; });
-    mountAudioSetup(document.body, { discover: vi.fn().mockReturnValue(pending), probe: vi.fn() });
+    mountAudioSetup(document.body, {
+      discover: vi.fn().mockReturnValue(pending),
+      probe: vi.fn(),
+      initializeShared: vi.fn(),
+    });
     const refresh = document.querySelector("button") as HTMLButtonElement;
     const other = document.createElement("button");
     other.textContent = "Other action";
@@ -118,7 +197,11 @@ describe("audio setup discovery", () => {
     let resolve: { value?: (capabilities: typeof CAPABILITIES) => void } = {};
     const pending = new Promise<typeof CAPABILITIES>((done) => { resolve.value = done; });
     const probe = vi.fn().mockReturnValue(pending);
-    mountAudioSetup(document.body, { discover: vi.fn().mockResolvedValue(DISCOVERY), probe });
+    mountAudioSetup(document.body, {
+      discover: vi.fn().mockResolvedValue(DISCOVERY),
+      probe,
+      initializeShared: vi.fn(),
+    });
     (document.querySelector("button") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(document.querySelectorAll("[data-probe-wasapi]")).toHaveLength(2));
     const buttons = [...document.querySelectorAll<HTMLButtonElement>("[data-probe-wasapi]")];
@@ -159,6 +242,7 @@ describe("audio setup discovery", () => {
     mountAudioSetup(document.body, {
       discover: vi.fn().mockResolvedValue(DISCOVERY),
       probe: vi.fn().mockResolvedValue(unsupported),
+      initializeShared: vi.fn(),
     });
     (document.querySelector("button") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(document.querySelector("[data-probe-wasapi]")).not.toBeNull());
@@ -184,6 +268,7 @@ describe("audio setup discovery", () => {
     mountAudioSetup(document.body, {
       discover: vi.fn().mockResolvedValue(DISCOVERY),
       probe: vi.fn().mockResolvedValue(olderCapabilities),
+      initializeShared: vi.fn(),
     });
     (document.querySelector("button") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(document.querySelector("[data-probe-wasapi]")).not.toBeNull());
@@ -205,7 +290,11 @@ describe("audio setup discovery", () => {
     let resolve: { value?: (capabilities: typeof CAPABILITIES) => void } = {};
     const pending = new Promise<typeof CAPABILITIES>((done) => { resolve.value = done; });
     const discover = vi.fn().mockResolvedValue(DISCOVERY);
-    mountAudioSetup(document.body, { discover, probe: vi.fn().mockReturnValue(pending) });
+    mountAudioSetup(document.body, {
+      discover,
+      probe: vi.fn().mockReturnValue(pending),
+      initializeShared: vi.fn(),
+    });
     const refresh = document.querySelector("button") as HTMLButtonElement;
     refresh.click();
     await vi.waitFor(() => expect(document.querySelector("[data-probe-wasapi]")).not.toBeNull());
@@ -224,6 +313,7 @@ describe("audio setup discovery", () => {
     mountAudioSetup(document.body, {
       discover: vi.fn().mockResolvedValue(DISCOVERY),
       probe: vi.fn().mockRejectedValue(new Error("private endpoint output-1")),
+      initializeShared: vi.fn(),
     });
     (document.querySelector("button") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(document.querySelector("[data-probe-wasapi]")).not.toBeNull());

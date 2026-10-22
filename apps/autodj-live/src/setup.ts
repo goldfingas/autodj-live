@@ -36,9 +36,16 @@ export interface WasapiCapabilities {
   } | null;
 }
 
+export interface WasapiSharedInitialization {
+  endpointId: string;
+  requestedPeriodFrames: number;
+  bufferFrames: number;
+}
+
 export interface AudioSetupApi {
   discover(): Promise<AudioDiscovery>;
   probe(endpointId: string): Promise<WasapiCapabilities>;
+  initializeShared(endpointId: string): Promise<WasapiSharedInitialization>;
 }
 
 function label(value: string): string {
@@ -82,7 +89,7 @@ export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
   const heading = document.createElement("h2");
   heading.textContent = "Audio setup";
   const explanation = document.createElement("p");
-  explanation.textContent = "Read-only device inventory. Nothing is selected or opened.";
+  explanation.textContent = "Device inventory and explicit checks. Nothing is selected. Checking a shared buffer briefly initializes and releases it. Audio is never started.";
   const refresh = document.createElement("button");
   refresh.type = "button";
   refresh.textContent = "Refresh audio devices";
@@ -147,6 +154,39 @@ export function mountAudioSetup(root: HTMLElement, api: AudioSetupApi) {
           }
         });
         item.append(probe, result);
+        const initialize = document.createElement("button");
+        initialize.type = "button";
+        initialize.dataset.initializeWasapiShared = "";
+        initialize.textContent = "Check shared buffer";
+        initialize.setAttribute("aria-label", `Check WASAPI shared buffer for ${endpoint.name}`);
+        const initializationResult = document.createElement("p");
+        initializationResult.className = "probe-result";
+        initialize.addEventListener("click", async () => {
+          const restoreFocus = document.activeElement === initialize;
+          initialize.disabled = true;
+          initializationResult.textContent = "Initializing and releasing WASAPI shared bufferâ€¦";
+          try {
+            const initialized = await api.initializeShared(endpoint.id);
+            if (generation !== currentGeneration) return;
+            if (
+              initialized.endpointId !== endpoint.id
+              || initialized.requestedPeriodFrames <= 0
+              || initialized.bufferFrames <= 0
+            ) throw new Error("invalid initialization evidence");
+            initializationResult.textContent = `Shared buffer initialized and released: requested ${number.format(initialized.requestedPeriodFrames)} frames Â· allocated ${number.format(initialized.bufferFrames)} frames. The stream was never started; playback stability and latency remain untested.`;
+            announcement.textContent = "WASAPI shared buffer check ready.";
+          } catch {
+            if (generation !== currentGeneration) return;
+            initializationResult.textContent = "WASAPI shared buffer could not be initialized.";
+            announcement.textContent = initializationResult.textContent;
+          } finally {
+            initialize.disabled = false;
+            if (restoreFocus && (document.activeElement === initialize || document.activeElement === document.body)) {
+              initialize.focus();
+            }
+          }
+        });
+        item.append(initialize, initializationResult);
       }
       return item;
     }));

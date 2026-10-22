@@ -9,7 +9,7 @@ use std::{
 
 pub use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
-    WasapiCapabilities,
+    WasapiCapabilities, WasapiSharedInitialization,
 };
 use autodj_live_supervisor::{
     ChildCommand, LaunchConfig, LiveSession, LiveSupervisor, RuntimeRecord, RuntimeStore,
@@ -59,6 +59,10 @@ pub trait SupervisorBackend: Send {
         &mut self,
         endpoint_id: &str,
     ) -> impl std::future::Future<Output = Result<WasapiCapabilities, Component>> + Send;
+    fn initialize_wasapi_shared(
+        &mut self,
+        endpoint_id: &str,
+    ) -> impl std::future::Future<Output = Result<WasapiSharedInitialization, Component>> + Send;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -221,6 +225,16 @@ impl<B: SupervisorBackend> FoundationLifecycle<B> {
         self.backend.probe_wasapi(endpoint_id).await
     }
 
+    pub async fn initialize_wasapi_shared(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiSharedInitialization, Component> {
+        if !self.setup_complete || self.stopped {
+            return Err(Component::Engine);
+        }
+        self.backend.initialize_wasapi_shared(endpoint_id).await
+    }
+
     pub fn status(&self) -> FoundationStatus {
         let mut status = self.status.clone();
         status.uptime_seconds = self.started.elapsed().as_secs();
@@ -287,6 +301,17 @@ impl<B: SupervisorBackend> ShellLifecycle<B> {
         self.lifecycle.lock().await.probe_wasapi(endpoint_id).await
     }
 
+    pub async fn initialize_wasapi_shared(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<WasapiSharedInitialization, Component> {
+        self.lifecycle
+            .lock()
+            .await
+            .initialize_wasapi_shared(endpoint_id)
+            .await
+    }
+
     pub fn claim_exit(&self) -> bool {
         !self.exiting.swap(true, Ordering::SeqCst)
     }
@@ -339,6 +364,10 @@ pub trait SupervisorSession: Send {
         &mut self,
         endpoint_id: &str,
     ) -> impl std::future::Future<Output = Result<WasapiCapabilities, SupervisorError>> + Send;
+    fn initialize_wasapi_shared(
+        &mut self,
+        endpoint_id: &str,
+    ) -> impl std::future::Future<Output = Result<WasapiSharedInitialization, SupervisorError>> + Send;
 }
 
 impl SupervisorSession for LiveSession {
@@ -375,6 +404,13 @@ impl SupervisorSession for LiveSession {
         endpoint_id: &str,
     ) -> Result<WasapiCapabilities, SupervisorError> {
         LiveSession::probe_wasapi(self, endpoint_id).await
+    }
+
+    async fn initialize_wasapi_shared(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiSharedInitialization, SupervisorError> {
+        LiveSession::initialize_wasapi_shared(self, endpoint_id).await
     }
 }
 
@@ -571,6 +607,18 @@ impl<R: SupervisorRuntime> SupervisorBackend for ProductionSupervisor<R> {
             .await
             .map_err(|_| Component::Engine)
     }
+
+    async fn initialize_wasapi_shared(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiSharedInitialization, Component> {
+        self.session
+            .as_mut()
+            .ok_or(Component::Engine)?
+            .initialize_wasapi_shared(endpoint_id)
+            .await
+            .map_err(|_| Component::Engine)
+    }
 }
 
 type AppState = ShellLifecycle<ProductionSupervisor>;
@@ -608,6 +656,17 @@ async fn probe_wasapi_endpoint(
     state.probe_wasapi(&endpoint_id).await.map_err(|_| ())
 }
 
+#[tauri::command]
+async fn initialize_wasapi_shared_endpoint(
+    endpoint_id: String,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<WasapiSharedInitialization, ()> {
+    state
+        .initialize_wasapi_shared(&endpoint_id)
+        .await
+        .map_err(|_| ())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -615,7 +674,8 @@ pub fn run() {
             retry_component,
             shutdown_live,
             get_audio_discovery,
-            probe_wasapi_endpoint
+            probe_wasapi_endpoint,
+            initialize_wasapi_shared_endpoint
         ])
         .setup(|app| {
             let resource_dir = app.path().resource_dir()?;

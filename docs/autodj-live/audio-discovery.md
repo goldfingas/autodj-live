@@ -118,3 +118,20 @@ engine periods at 48 kHz. The 128-frame target is therefore not selectable for
 that endpoint's exact shared mix format. This is one endpoint/format result,
 not a statement about the Rane ASIO driver, another Rane endpoint, or stable
 480-frame playback.
+
+## Explicit WASAPI shared-buffer check
+
+Setup now offers **Check shared buffer** as a separate user action for active
+endpoints. The engine applies the non-offloaded Media category, re-queries the
+period range on that configured client, selects 128 frames only when the range
+accepts it, and otherwise selects the reported default. It initializes the
+exact shared-mix descriptor with stream flags `0`, reads the allocated buffer
+capacity, and releases the client without calling `Start` or transferring
+audio samples.
+
+On 2026-10-22 the connected active `Mic 1/2 (Rane PERFORMER)` endpoint's
+2-channel, 48,000 Hz, 32-bit shared mix requested its only selectable period of
+480 frames. Windows initialized a 1,056-frame shared buffer, which the check
+then released. The stream was never started. This does not prove event-driven
+operation, continuous capture or rendering, stable playback, callback safety,
+input/output latency, scratching latency, routing, or any ASIO capability.

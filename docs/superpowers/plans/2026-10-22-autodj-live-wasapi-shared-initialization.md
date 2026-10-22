@@ -90,17 +90,17 @@ Commit: `feat: initialize WASAPI shared buffers`
 - Produces: Tauri command `initialize_wasapi_shared_endpoint(endpoint_id: String)`
 - Produces: `AudioSetupApi.initializeShared(endpointId: string): Promise<WasapiSharedInitialization>`
 
-- [ ] **Step 1: Write failing shell and UI tests**
+- [x] **Step 1: Write failing shell and UI tests**
 
 Assert the shell refuses the operation before setup, passes through engine data after setup, and invokes the backend only on request. In UI tests assert separate probe/initialize actions, explicit transient-access copy, requested/allocated success text with no playback or latency claim, endpoint-ID mismatch rejection, generic failure copy, focus restoration, and stale-result rejection after refresh.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cargo test -p autodj-live-app` and `npm --workspace @autodj/live test`
 
 Expected: compilation/type failures and UI failures because the new shell/API action is absent.
 
-- [ ] **Step 3: Implement the minimal shell and UI path**
+- [x] **Step 3: Implement the minimal shell and UI path**
 
 Pass the typed operation through the production backend and Tauri command. Add one button/result per active endpoint, preserve discovery-generation and focus behavior, and keep all failure text generic. Update contributor and evidence-limit documentation.
 

@@ -41,12 +41,12 @@ partial results when metadata fails; exit status 1 means one or more discovery
 issues were reported, not necessarily that the entire inventory failed.
 The command-line form remains useful as a developer diagnostic.
 
-The desktop Setup section exposes the same read-only inventory through the
-authenticated Live engine. It performs no automatic scan: activate **Refresh
-audio devices** to replace the current list. Endpoint availability and ASIO
-registration are inventory only; no item is selectable and no capabilities,
-channel layout, or latency are implied. The IPC wait is bounded; a stalled scan
-may continue outside the async runtime and blocks further scans until it exits.
+The desktop Setup section exposes the same inventory through the authenticated
+Live engine. It performs no automatic scan: activate **Refresh audio devices**
+to replace the current list. Endpoint availability and ASIO registration are
+inventory only; no item is selected automatically and no channel layout or
+latency is implied. The IPC wait is bounded; a stalled operation may continue
+outside the async runtime and blocks further audio operations until it exits.
 Partial metadata issues remain visible without discarding healthy entries.
 
 For an active endpoint, **Probe WASAPI** reports the current shared-engine mix
@@ -63,10 +63,19 @@ size, stable playback, or measured latency. Refreshing the inventory clears
 probe results. When the shell reattaches to an older compatible engine, Setup
 marks absent evidence unavailable instead of treating it as driver rejection.
 
-`cargo test -p live-audio` checks control-thread device and channel-route
-validation, including separate master/cue paths. This library does not open
-hardware, render audio, publish routes to a callback, or establish ASIO/WASAPI
-support or latency guarantees.
+**Check shared buffer** is a separate explicit action. It configures a fresh
+client as non-offloaded Media audio, re-queries the valid shared-engine periods,
+requests 128 frames when valid (otherwise the reported default), initializes
+the exact shared-mix format, reads the allocated buffer capacity, and releases
+the client. It uses stream flags `0` and never starts the stream or transfers
+samples. The result is evidence for one transient initialization only, not
+event-driven operation, stable playback, callback safety, routing, or latency.
+
+`cargo test -p live-audio` checks control-thread device, period, initialization
+evidence, and channel-route validation, including separate master/cue paths.
+The explicit shared-buffer check briefly opens WASAPI hardware; the library
+does not render audio, publish routes to a callback, or establish ASIO support,
+stable WASAPI playback, or latency guarantees.
 
 Use the smallest relevant command while iterating, then run the foundation
 gate before handoff:

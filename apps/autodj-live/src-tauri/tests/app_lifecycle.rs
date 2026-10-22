@@ -9,7 +9,7 @@ use std::{
 use autodj_live_app::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BackendConnection, BackendHealth, Component, FoundationLifecycle, ShellLifecycle,
-    SupervisorBackend, WasapiCapabilities, request_orderly_exit,
+    SupervisorBackend, WasapiCapabilities, WasapiSharedInitialization, request_orderly_exit,
 };
 use uuid::Uuid;
 
@@ -21,6 +21,7 @@ struct Shared {
     retries: Vec<Component>,
     discovery_requests: usize,
     probe_requests: Vec<String>,
+    shared_initialization_requests: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -114,6 +115,22 @@ impl SupervisorBackend for FakeSupervisor {
             }),
         })
     }
+
+    async fn initialize_wasapi_shared(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiSharedInitialization, Component> {
+        self.shared
+            .lock()
+            .unwrap()
+            .shared_initialization_requests
+            .push(endpoint_id.into());
+        Ok(WasapiSharedInitialization {
+            endpoint_id: endpoint_id.into(),
+            requested_period_frames: 128,
+            buffer_frames: 480,
+        })
+    }
 }
 
 #[tokio::test]
@@ -128,6 +145,34 @@ async fn wasapi_probe_is_user_requested_and_passes_through_engine_data() {
     assert_eq!(shared.lock().unwrap().probe_requests, ["rane-output"]);
     assert_eq!(capabilities.channels, 8);
     assert_eq!(capabilities.sample_rate_hz, 48_000);
+}
+
+#[tokio::test]
+async fn wasapi_shared_initialization_requires_setup_and_is_user_requested() {
+    let shared = Arc::new(Mutex::new(Shared::default()));
+    let shell = ShellLifecycle::new(FakeSupervisor::new(shared.clone()));
+    assert_eq!(
+        shell.initialize_wasapi_shared("rane-output").await,
+        Err(Component::Engine)
+    );
+    shell.setup().await.unwrap();
+    assert!(
+        shared
+            .lock()
+            .unwrap()
+            .shared_initialization_requests
+            .is_empty()
+    );
+
+    let initialized = shell.initialize_wasapi_shared("rane-output").await.unwrap();
+
+    assert_eq!(
+        shared.lock().unwrap().shared_initialization_requests,
+        ["rane-output"]
+    );
+    assert_eq!(initialized.endpoint_id, "rane-output");
+    assert_eq!(initialized.requested_period_frames, 128);
+    assert_eq!(initialized.buffer_frames, 480);
 }
 
 #[tokio::test]

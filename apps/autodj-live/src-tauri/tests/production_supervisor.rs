@@ -6,7 +6,7 @@ use std::{
 use autodj_live_app::{
     AudioDiscovery, Component, FoundationLifecycle, ProductionSupervisor, ShellLifecycle,
     SupervisorBackend, SupervisorRuntime, SupervisorSession, WasapiCapabilities,
-    resolve_child_paths,
+    WasapiSharedInitialization, resolve_child_paths,
 };
 use autodj_live_supervisor::{
     ChildCommand, LaunchConfig, Protection, RuntimeStore, SupervisorError,
@@ -116,6 +116,17 @@ impl SupervisorSession for Session {
                 minimum_frames: 48,
                 maximum_frames: 480,
             }),
+        })
+    }
+
+    async fn initialize_wasapi_shared(
+        &mut self,
+        endpoint_id: &str,
+    ) -> Result<WasapiSharedInitialization, SupervisorError> {
+        Ok(WasapiSharedInitialization {
+            endpoint_id: endpoint_id.into(),
+            requested_period_frames: 128,
+            buffer_frames: 480,
         })
     }
 }
