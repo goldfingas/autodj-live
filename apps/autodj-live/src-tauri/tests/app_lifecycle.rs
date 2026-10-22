@@ -105,7 +105,7 @@ impl SupervisorBackend for FakeSupervisor {
             default_period_100ns: 100_000,
             minimum_period_100ns: 30_000,
             exclusive_shared_mix_supported: true,
-            exclusive_shared_format_sample_rates_hz: vec![44_100, 48_000],
+            exclusive_shared_format_sample_rates_hz: Some(vec![44_100, 48_000]),
         })
     }
 }

@@ -157,6 +157,25 @@ describe("audio setup discovery", () => {
     ));
   });
 
+  test("labels official-rate evidence as unavailable when attached to an older engine", async () => {
+    const olderCapabilities = {
+      ...CAPABILITIES,
+      exclusiveSharedFormatSampleRatesHz: null,
+    };
+    mountAudioSetup(document.body, {
+      discover: vi.fn().mockResolvedValue(DISCOVERY),
+      probe: vi.fn().mockResolvedValue(olderCapabilities),
+    });
+    (document.querySelector("button") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector("[data-probe-wasapi]")).not.toBeNull());
+    (document.querySelector("[data-probe-wasapi]") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain(
+      "Official exclusive-rate probing is unavailable from the attached engine.",
+    ));
+    expect(document.body.textContent).not.toContain("No official exclusive rates were accepted");
+  });
+
   test("refresh discards stale capabilities and late probe results", async () => {
     let resolve: { value?: (capabilities: typeof CAPABILITIES) => void } = {};
     const pending = new Promise<typeof CAPABILITIES>((done) => { resolve.value = done; });

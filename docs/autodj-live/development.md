@@ -57,7 +57,9 @@ representation. It activates the Windows audio client only for those queries
 and never initializes or starts a stream. The result does not establish support
 for other channel layouts, sample representations, buffer sizes, ASIO,
 physical channel names, or measured latency. Refreshing the inventory clears
-probe results.
+probe results. When the shell reattaches to an older compatible engine, Setup
+marks official-rate evidence unavailable instead of treating an absent result
+as driver rejection.
 
 `cargo test -p live-audio` checks control-thread device and channel-route
 validation, including separate master/cue paths. This library does not open

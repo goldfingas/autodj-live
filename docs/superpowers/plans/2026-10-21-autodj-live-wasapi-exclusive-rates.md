@@ -40,7 +40,7 @@
 
 **Interfaces:**
 - Consumes: the validated descriptor returned by `GetMixFormat` and the existing exact exclusive result.
-- Produces: `exclusive_shared_format_sample_rates_hz: Vec<u32>` in audio and protocol capability models.
+- Produces: `exclusive_shared_format_sample_rates_hz: Vec<u32>` in audio and `Option<Vec<u32>>` in the protocol model so reattached older engines remain distinguishable from a probed empty result.
 
 - [x] **Step 1: Write failing Rust tests**
 
@@ -75,7 +75,7 @@ Commit message: `feat: probe official WASAPI exclusive rates`
 - Modify: `docs/superpowers/plans/2026-10-21-autodj-live-wasapi-exclusive-rates.md`
 
 **Interfaces:**
-- Consumes: camelCase `exclusiveSharedFormatSampleRatesHz: number[]`.
+- Consumes: camelCase `exclusiveSharedFormatSampleRatesHz: number[] | null`.
 - Produces: explicit accepted-rate or none-accepted text scoped to the displayed channels/sample representation.
 
 - [x] **Step 1: Write failing UI tests**
@@ -98,6 +98,6 @@ Probe the connected active Rane endpoint without opening a stream. Run UI tests/
 
 Expected: all automated gates pass; native output lists only accepted official rates for the preserved format template.
 
-- [ ] **Step 5: Review, commit, push, and prove synchronization**
+- [x] **Step 5: Review, commit, push, and prove synchronization**
 
 Commit message: `feat: show official WASAPI exclusive rates`. Obtain one fresh whole-change review, defer Minor findings, fix Critical/Important findings test-first, push `feat/autodj-live-audio-routing`, and require local/remote divergence `0 0` without merging or opening a pull request.

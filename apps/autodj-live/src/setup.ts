@@ -27,7 +27,7 @@ export interface WasapiCapabilities {
   defaultPeriod100ns: number;
   minimumPeriod100ns: number;
   exclusiveSharedMixSupported: boolean;
-  exclusiveSharedFormatSampleRatesHz: number[];
+  exclusiveSharedFormatSampleRatesHz: number[] | null;
 }
 
 export interface AudioSetupApi {
@@ -47,9 +47,12 @@ const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 function capabilityLabel(capabilities: WasapiCapabilities): string {
   const exactExclusive = capabilities.exclusiveSharedMixSupported ? "supported" : "not supported";
-  const acceptedRates = capabilities.exclusiveSharedFormatSampleRatesHz.length > 0
-    ? `Official exclusive rates with the same channels and sample representation: ${capabilities.exclusiveSharedFormatSampleRatesHz.map((rate) => `${number.format(rate)} Hz`).join(" · ")}.`
-    : "No official exclusive rates were accepted with the same channels and sample representation.";
+  const probedRates = capabilities.exclusiveSharedFormatSampleRatesHz;
+  const acceptedRates = probedRates === null
+    ? "Official exclusive-rate probing is unavailable from the attached engine."
+    : probedRates.length > 0
+      ? `Official exclusive rates with the same channels and sample representation: ${probedRates.map((rate) => `${number.format(rate)} Hz`).join(" · ")}.`
+      : "No official exclusive rates were accepted with the same channels and sample representation.";
   return `WASAPI shared mix: ${capabilities.channels} channels · ${number.format(capabilities.sampleRateHz)} Hz · ${capabilities.bitsPerSample}-bit. Engine periods: ${number.format(capabilities.defaultPeriod100ns / 10_000)} ms default · ${number.format(capabilities.minimumPeriod100ns / 10_000)} ms minimum. This exact format is ${exactExclusive} in exclusive mode. ${acceptedRates} Other channel layouts, sample representations, buffer sizes, and ASIO untested.`;
 }
 

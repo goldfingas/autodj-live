@@ -109,7 +109,7 @@ impl SupervisorSession for Session {
             default_period_100ns: 100_000,
             minimum_period_100ns: 30_000,
             exclusive_shared_mix_supported: false,
-            exclusive_shared_format_sample_rates_hz: vec![],
+            exclusive_shared_format_sample_rates_hz: Some(vec![]),
         })
     }
 }

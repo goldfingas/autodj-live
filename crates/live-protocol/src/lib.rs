@@ -124,7 +124,8 @@ pub struct WasapiCapabilities {
     pub default_period_100ns: u64,
     pub minimum_period_100ns: u64,
     pub exclusive_shared_mix_supported: bool,
-    pub exclusive_shared_format_sample_rates_hz: Vec<u32>,
+    #[serde(default)]
+    pub exclusive_shared_format_sample_rates_hz: Option<Vec<u32>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -1,4 +1,6 @@
-use autodj_live_protocol::{BearerToken, HealthSnapshot, ProtocolError, ProtocolVersion};
+use autodj_live_protocol::{
+    BearerToken, HealthSnapshot, ProtocolError, ProtocolVersion, WasapiCapabilities,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -76,6 +78,35 @@ fn newer_minor_unknown_fields_survive_health_decode_and_reencode() {
             future_counter: 99,
         }
     );
+}
+
+#[test]
+fn capabilities_from_an_older_engine_mark_rate_probe_unavailable() {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct OlderWasapiCapabilities {
+        endpoint_id: String,
+        channels: u16,
+        sample_rate_hz: u32,
+        bits_per_sample: u16,
+        default_period_100ns: u64,
+        minimum_period_100ns: u64,
+        exclusive_shared_mix_supported: bool,
+    }
+
+    let encoded = rmp_serde::to_vec_named(&OlderWasapiCapabilities {
+        endpoint_id: "endpoint-1".into(),
+        channels: 2,
+        sample_rate_hz: 48_000,
+        bits_per_sample: 32,
+        default_period_100ns: 100_000,
+        minimum_period_100ns: 30_000,
+        exclusive_shared_mix_supported: false,
+    })
+    .unwrap();
+
+    let decoded: WasapiCapabilities = rmp_serde::from_slice(&encoded).unwrap();
+    assert!(decoded.exclusive_shared_format_sample_rates_hz.is_none());
 }
 
 #[test]
