@@ -50,11 +50,14 @@ may continue outside the async runtime and blocks further scans until it exits.
 Partial metadata issues remain visible without discarding healthy entries.
 
 For an active endpoint, **Probe WASAPI** reports the current shared-engine mix
-format and default/minimum engine periods. It activates the Windows audio
-client only for those queries and never initializes or starts a stream. The
-result does not establish exclusive-mode or ASIO support, physical channel
-names, supported buffer sizes, or measured latency. Refreshing the inventory
-clears probe results.
+format and default/minimum engine periods. It also checks whether that exact
+descriptor is accepted in exclusive mode and tests the official 44.1, 48, and
+96 kHz rates while preserving the descriptor's channel layout and sample
+representation. It activates the Windows audio client only for those queries
+and never initializes or starts a stream. The result does not establish support
+for other channel layouts, sample representations, buffer sizes, ASIO,
+physical channel names, or measured latency. Refreshing the inventory clears
+probe results.
 
 `cargo test -p live-audio` checks control-thread device and channel-route
 validation, including separate master/cue paths. This library does not open

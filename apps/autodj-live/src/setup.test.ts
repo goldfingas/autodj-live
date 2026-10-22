@@ -24,6 +24,7 @@ const CAPABILITIES = {
   defaultPeriod100ns: 100_000,
   minimumPeriod100ns: 30_000,
   exclusiveSharedMixSupported: true,
+  exclusiveSharedFormatSampleRatesHz: [44_100, 48_000],
 };
 
 describe("audio setup discovery", () => {
@@ -125,7 +126,7 @@ describe("audio setup discovery", () => {
     resolve.value?.(CAPABILITIES);
     await vi.waitFor(() => expect(buttons[0].disabled).toBe(false));
     expect(document.body.textContent).toContain(
-      "WASAPI shared mix: 8 channels · 48,000 Hz · 32-bit. Engine periods: 10 ms default · 3 ms minimum. This exact format is supported in exclusive mode. Other exclusive formats and ASIO untested.",
+      "WASAPI shared mix: 8 channels · 48,000 Hz · 32-bit. Engine periods: 10 ms default · 3 ms minimum. This exact format is supported in exclusive mode. Official exclusive rates with the same channels and sample representation: 44,100 Hz · 48,000 Hz. Other channel layouts, sample representations, buffer sizes, and ASIO untested.",
     );
     const announcement = document.querySelector("[data-audio-announcement]")?.textContent ?? "";
     expect(announcement).toBe("WASAPI shared mix ready.");
@@ -141,6 +142,7 @@ describe("audio setup discovery", () => {
       defaultPeriod100ns: 100_000,
       minimumPeriod100ns: 30_000,
       exclusiveSharedMixSupported: false,
+      exclusiveSharedFormatSampleRatesHz: [],
     };
     mountAudioSetup(document.body, {
       discover: vi.fn().mockResolvedValue(DISCOVERY),
@@ -151,7 +153,7 @@ describe("audio setup discovery", () => {
     (document.querySelector("[data-probe-wasapi]") as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(document.body.textContent).toContain(
-      "This exact format is not supported in exclusive mode. Other exclusive formats and ASIO untested.",
+      "This exact format is not supported in exclusive mode. No official exclusive rates were accepted with the same channels and sample representation. Other channel layouts, sample representations, buffer sizes, and ASIO untested.",
     ));
   });
 
