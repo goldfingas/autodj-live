@@ -126,6 +126,17 @@ pub struct WasapiCapabilities {
     pub exclusive_shared_mix_supported: bool,
     #[serde(default)]
     pub exclusive_shared_format_sample_rates_hz: Option<Vec<u32>>,
+    #[serde(default)]
+    pub shared_mode_engine_periods: Option<SharedModeEnginePeriods>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedModeEnginePeriods {
+    pub default_frames: u32,
+    pub fundamental_frames: u32,
+    pub minimum_frames: u32,
+    pub maximum_frames: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

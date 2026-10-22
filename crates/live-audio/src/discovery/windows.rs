@@ -5,7 +5,7 @@ use ::windows::{
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, S_OK},
         Media::Audio::{
             AUDCLNT_E_UNSUPPORTED_FORMAT, AUDCLNT_SHAREMODE_EXCLUSIVE, DEVICE_STATE,
-            DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IMMDevice,
+            DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, IAudioClient, IAudioClient3, IMMDevice,
             IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, eCapture, eRender,
         },
         System::{
@@ -17,7 +17,7 @@ use ::windows::{
             Registry::*,
         },
     },
-    core::{GUID, HRESULT, PCWSTR, PWSTR, w},
+    core::{GUID, HRESULT, Interface, PCWSTR, PWSTR, w},
 };
 
 struct ComApartment;
@@ -180,6 +180,29 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
     let _format_memory = TaskMemory(format_ptr.cast());
     let format = unsafe { format_ptr.read_unaligned() };
     let (channels, sample_rate, bits) = validated_mix_format(format)?;
+    let client3: IAudioClient3 = client
+        .cast()
+        .map_err(|_| "WASAPI shared engine periods are unavailable")?;
+    let mut shared_default_frames = 0;
+    let mut shared_fundamental_frames = 0;
+    let mut shared_minimum_frames = 0;
+    let mut shared_maximum_frames = 0;
+    unsafe {
+        client3.GetSharedModeEnginePeriod(
+            format_ptr,
+            &mut shared_default_frames,
+            &mut shared_fundamental_frames,
+            &mut shared_minimum_frames,
+            &mut shared_maximum_frames,
+        )
+    }
+    .map_err(|_| "could not read WASAPI shared engine periods")?;
+    let shared_mode_engine_periods = shared_mode_engine_periods(
+        shared_default_frames,
+        shared_fundamental_frames,
+        shared_minimum_frames,
+        shared_maximum_frames,
+    )?;
     let exclusive_shared_mix_supported = exclusive_format_support(unsafe {
         client.IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, format_ptr, None)
     })?;
@@ -207,7 +230,7 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
         channels,
         sample_rate,
         bits,
-        (default_period, minimum_period),
+        (default_period, minimum_period, shared_mode_engine_periods),
         exclusive_shared_mix_supported,
         exclusive_shared_format_sample_rates_hz,
     )

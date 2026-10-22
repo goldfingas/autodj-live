@@ -110,6 +110,12 @@ impl SupervisorSession for Session {
             minimum_period_100ns: 30_000,
             exclusive_shared_mix_supported: false,
             exclusive_shared_format_sample_rates_hz: Some(vec![]),
+            shared_mode_engine_periods: Some(autodj_live_protocol::SharedModeEnginePeriods {
+                default_frames: 480,
+                fundamental_frames: 4,
+                minimum_frames: 48,
+                maximum_frames: 480,
+            }),
         })
     }
 }

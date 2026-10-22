@@ -107,6 +107,7 @@ fn capabilities_from_an_older_engine_mark_rate_probe_unavailable() {
 
     let decoded: WasapiCapabilities = rmp_serde::from_slice(&encoded).unwrap();
     assert!(decoded.exclusive_shared_format_sample_rates_hz.is_none());
+    assert!(decoded.shared_mode_engine_periods.is_none());
 }
 
 #[test]

@@ -222,6 +222,12 @@ fn map_wasapi(capabilities: live_audio::discovery::WasapiCapabilities) -> Wasapi
         exclusive_shared_format_sample_rates_hz: Some(
             capabilities.exclusive_shared_format_sample_rates_hz,
         ),
+        shared_mode_engine_periods: Some(autodj_live_protocol::SharedModeEnginePeriods {
+            default_frames: capabilities.shared_mode_engine_periods.default_frames,
+            fundamental_frames: capabilities.shared_mode_engine_periods.fundamental_frames,
+            minimum_frames: capabilities.shared_mode_engine_periods.minimum_frames,
+            maximum_frames: capabilities.shared_mode_engine_periods.maximum_frames,
+        }),
     }
 }
 

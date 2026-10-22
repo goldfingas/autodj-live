@@ -44,6 +44,23 @@ pub struct WasapiCapabilities {
     pub minimum_period_100ns: u64,
     pub exclusive_shared_mix_supported: bool,
     pub exclusive_shared_format_sample_rates_hz: Vec<u32>,
+    pub shared_mode_engine_periods: SharedModeEnginePeriods,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedModeEnginePeriods {
+    pub default_frames: u32,
+    pub fundamental_frames: u32,
+    pub minimum_frames: u32,
+    pub maximum_frames: u32,
+}
+
+impl SharedModeEnginePeriods {
+    pub fn supports_period_frames(&self, frames: u32) -> bool {
+        frames >= self.minimum_frames
+            && frames <= self.maximum_frames
+            && frames.is_multiple_of(self.fundamental_frames)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -112,11 +129,11 @@ fn wasapi_capabilities(
     channels: u16,
     sample_rate_hz: u32,
     bits_per_sample: u16,
-    periods_100ns: (i64, i64),
+    periods: (i64, i64, SharedModeEnginePeriods),
     exclusive_shared_mix_supported: bool,
     exclusive_shared_format_sample_rates_hz: Vec<u32>,
 ) -> Result<WasapiCapabilities, &'static str> {
-    let (default_period_100ns, minimum_period_100ns) = periods_100ns;
+    let (default_period_100ns, minimum_period_100ns, shared_mode_engine_periods) = periods;
     let rates_are_ordered_and_official = exclusive_shared_format_sample_rates_hz
         .iter()
         .all(|rate| OFFICIAL_SAMPLE_RATES_HZ.contains(rate))
@@ -147,6 +164,31 @@ fn wasapi_capabilities(
         minimum_period_100ns: minimum_period_100ns as u64,
         exclusive_shared_mix_supported,
         exclusive_shared_format_sample_rates_hz,
+        shared_mode_engine_periods,
+    })
+}
+
+fn shared_mode_engine_periods(
+    default_frames: u32,
+    fundamental_frames: u32,
+    minimum_frames: u32,
+    maximum_frames: u32,
+) -> Result<SharedModeEnginePeriods, &'static str> {
+    if fundamental_frames == 0
+        || minimum_frames == 0
+        || minimum_frames > default_frames
+        || default_frames > maximum_frames
+        || !minimum_frames.is_multiple_of(fundamental_frames)
+        || !default_frames.is_multiple_of(fundamental_frames)
+        || !maximum_frames.is_multiple_of(fundamental_frames)
+    {
+        return Err("WASAPI returned invalid shared engine periods");
+    }
+    Ok(SharedModeEnginePeriods {
+        default_frames,
+        fundamental_frames,
+        minimum_frames,
+        maximum_frames,
     })
 }
 
@@ -173,6 +215,53 @@ fn registry_text(text: &[u16]) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn periods(default_100ns: i64, minimum_100ns: i64) -> (i64, i64, SharedModeEnginePeriods) {
+        (
+            default_100ns,
+            minimum_100ns,
+            shared_mode_engine_periods(480, 4, 48, 480).unwrap(),
+        )
+    }
+
+    #[test]
+    fn shared_periods_validate_range_and_fundamental_alignment() {
+        let periods = shared_mode_engine_periods(480, 4, 48, 480).unwrap();
+        assert_eq!(
+            periods,
+            SharedModeEnginePeriods {
+                default_frames: 480,
+                fundamental_frames: 4,
+                minimum_frames: 48,
+                maximum_frames: 480,
+            }
+        );
+        for supported in [48, 128, 480] {
+            assert!(periods.supports_period_frames(supported));
+        }
+        for unsupported in [0, 44, 49, 481] {
+            assert!(!periods.supports_period_frames(unsupported));
+        }
+
+        for malformed in [
+            (0, 4, 48, 480),
+            (480, 0, 48, 480),
+            (480, 4, 0, 480),
+            (480, 4, 48, 0),
+            (480, 4, 484, 480),
+            (44, 4, 48, 480),
+            (484, 4, 48, 480),
+            (478, 4, 48, 480),
+            (480, 4, 50, 480),
+            (480, 4, 48, 482),
+            (480, 7, 48, 480),
+        ] {
+            assert!(
+                shared_mode_engine_periods(malformed.0, malformed.1, malformed.2, malformed.3)
+                    .is_err()
+            );
+        }
+    }
 
     #[test]
     fn endpoint_states_do_not_confuse_unavailable_with_active() {
@@ -246,7 +335,7 @@ mod tests {
                 8,
                 48_000,
                 32,
-                (100_000, 30_000),
+                periods(100_000, 30_000),
                 true,
                 vec![44_100, 48_000],
             )
@@ -260,24 +349,33 @@ mod tests {
                 minimum_period_100ns: 30_000,
                 exclusive_shared_mix_supported: true,
                 exclusive_shared_format_sample_rates_hz: vec![44_100, 48_000],
+                shared_mode_engine_periods: shared_mode_engine_periods(480, 4, 48, 480).unwrap(),
             }
         );
 
         for malformed in [
-            wasapi_capabilities("id".into(), 0, 48_000, 32, (1, 1), false, vec![]),
-            wasapi_capabilities("id".into(), 2, 0, 32, (1, 1), false, vec![]),
-            wasapi_capabilities("id".into(), 2, 48_000, 0, (1, 1), false, vec![]),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, (-1, 1), false, vec![]),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, -1), false, vec![]),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, 2), false, vec![]),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, 1), true, vec![]),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, 1), false, vec![48_000]),
+            wasapi_capabilities("id".into(), 0, 48_000, 32, periods(1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 0, 32, periods(1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 0, periods(1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, periods(-1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, periods(1, -1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, periods(1, 2), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, periods(1, 1), true, vec![]),
             wasapi_capabilities(
                 "id".into(),
                 2,
                 48_000,
                 32,
-                (1, 1),
+                periods(1, 1),
+                false,
+                vec![48_000],
+            ),
+            wasapi_capabilities(
+                "id".into(),
+                2,
+                48_000,
+                32,
+                periods(1, 1),
                 true,
                 vec![48_000, 44_100],
             ),
@@ -286,7 +384,7 @@ mod tests {
                 2,
                 48_000,
                 32,
-                (1, 1),
+                periods(1, 1),
                 true,
                 vec![44_100, 44_100, 48_000],
             ),
@@ -295,7 +393,7 @@ mod tests {
                 2,
                 48_000,
                 32,
-                (1, 1),
+                periods(1, 1),
                 true,
                 vec![22_050, 48_000],
             ),

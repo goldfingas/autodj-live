@@ -106,6 +106,12 @@ impl SupervisorBackend for FakeSupervisor {
             minimum_period_100ns: 30_000,
             exclusive_shared_mix_supported: true,
             exclusive_shared_format_sample_rates_hz: Some(vec![44_100, 48_000]),
+            shared_mode_engine_periods: Some(autodj_live_protocol::SharedModeEnginePeriods {
+                default_frames: 480,
+                fundamental_frames: 4,
+                minimum_frames: 48,
+                maximum_frames: 480,
+            }),
         })
     }
 }

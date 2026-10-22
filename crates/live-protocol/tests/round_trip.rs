@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use autodj_live_protocol::{
     AsioRegistration, AudioDirection, AudioDiscovery, AudioEndpoint, AudioEndpointState,
     BearerToken, ClientHello, EngineCommand, EngineEvent, FrameCodec, HealthSnapshot,
-    ProtocolError, ProtocolVersion, ServerHello, WasapiCapabilities,
+    ProtocolError, ProtocolVersion, ServerHello, SharedModeEnginePeriods, WasapiCapabilities,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::AsyncWriteExt;
@@ -110,6 +110,12 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             minimum_period_100ns: 30_000,
             exclusive_shared_mix_supported: true,
             exclusive_shared_format_sample_rates_hz: Some(vec![44_100, 48_000]),
+            shared_mode_engine_periods: Some(SharedModeEnginePeriods {
+                default_frames: 480,
+                fundamental_frames: 4,
+                minimum_frames: 48,
+                maximum_frames: 480,
+            }),
         }),
         EngineEvent::WasapiCapabilities(WasapiCapabilities {
             endpoint_id: "endpoint-2".into(),
@@ -120,6 +126,7 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             minimum_period_100ns: 40_000,
             exclusive_shared_mix_supported: false,
             exclusive_shared_format_sample_rates_hz: Some(vec![]),
+            shared_mode_engine_periods: None,
         }),
     ];
     for event in events {
