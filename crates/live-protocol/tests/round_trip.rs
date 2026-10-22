@@ -109,6 +109,7 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             default_period_100ns: 100_000,
             minimum_period_100ns: 30_000,
             exclusive_shared_mix_supported: true,
+            exclusive_shared_format_sample_rates_hz: vec![44_100, 48_000],
         }),
         EngineEvent::WasapiCapabilities(WasapiCapabilities {
             endpoint_id: "endpoint-2".into(),
@@ -118,6 +119,7 @@ async fn foundation_messages_round_trip_through_big_endian_frames() {
             default_period_100ns: 120_000,
             minimum_period_100ns: 40_000,
             exclusive_shared_mix_supported: false,
+            exclusive_shared_format_sample_rates_hz: vec![],
         }),
     ];
     for event in events {

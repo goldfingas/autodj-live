@@ -75,6 +75,40 @@ fn exclusive_format_support(result: HRESULT) -> Result<bool, &'static str> {
     }
 }
 
+struct OwnedWaveFormat {
+    storage: Vec<usize>,
+}
+
+impl OwnedWaveFormat {
+    unsafe fn copy_with_sample_rate(
+        source: *const WAVEFORMATEX,
+        sample_rate_hz: u32,
+    ) -> Result<Self, &'static str> {
+        let header = unsafe { source.read_unaligned() };
+        let byte_rate = sample_rate_hz
+            .checked_mul(u32::from(header.nBlockAlign))
+            .ok_or("WASAPI candidate byte rate overflowed")?;
+        let bytes = std::mem::size_of::<WAVEFORMATEX>()
+            .checked_add(usize::from(header.cbSize))
+            .ok_or("WASAPI candidate size overflowed")?;
+        let words = bytes.div_ceil(std::mem::size_of::<usize>());
+        let mut storage = vec![0usize; words];
+        unsafe {
+            std::ptr::copy_nonoverlapping(source.cast::<u8>(), storage.as_mut_ptr().cast(), bytes);
+        }
+        let candidate = storage.as_mut_ptr().cast::<WAVEFORMATEX>();
+        let mut header = unsafe { candidate.read_unaligned() };
+        header.nSamplesPerSec = sample_rate_hz;
+        header.nAvgBytesPerSec = byte_rate;
+        unsafe { candidate.write_unaligned(header) };
+        Ok(Self { storage })
+    }
+
+    fn as_ptr(&self) -> *const WAVEFORMATEX {
+        self.storage.as_ptr().cast()
+    }
+}
+
 struct Key(HKEY);
 impl Drop for Key {
     fn drop(&mut self) {
@@ -149,6 +183,21 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
     let exclusive_shared_mix_supported = exclusive_format_support(unsafe {
         client.IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, format_ptr, None)
     })?;
+    let mut exclusive_shared_format_sample_rates_hz = Vec::new();
+    for candidate_rate in OFFICIAL_SAMPLE_RATES_HZ {
+        let supported = if candidate_rate == sample_rate {
+            exclusive_shared_mix_supported
+        } else {
+            let candidate =
+                unsafe { OwnedWaveFormat::copy_with_sample_rate(format_ptr, candidate_rate) }?;
+            exclusive_format_support(unsafe {
+                client.IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, candidate.as_ptr(), None)
+            })?
+        };
+        if supported {
+            exclusive_shared_format_sample_rates_hz.push(candidate_rate);
+        }
+    }
     let mut default_period = 0;
     let mut minimum_period = 0;
     unsafe { client.GetDevicePeriod(Some(&mut default_period), Some(&mut minimum_period)) }
@@ -158,9 +207,9 @@ pub(super) fn probe_wasapi(endpoint_id: &str) -> Result<WasapiCapabilities, &'st
         channels,
         sample_rate,
         bits,
-        default_period,
-        minimum_period,
+        (default_period, minimum_period),
         exclusive_shared_mix_supported,
+        exclusive_shared_format_sample_rates_hz,
     )
 }
 
@@ -373,6 +422,55 @@ mod tests {
         assert!(exclusive_format_support(HRESULT(0)).unwrap());
         assert!(!exclusive_format_support(AUDCLNT_E_UNSUPPORTED_FORMAT).unwrap());
         assert!(exclusive_format_support(E_FAIL).is_err());
+    }
+
+    #[test]
+    fn candidate_changes_only_rate_fields_and_preserves_extension_bytes() {
+        use ::windows::Win32::Media::Audio::WAVEFORMATEXTENSIBLE;
+
+        let source = WAVEFORMATEXTENSIBLE {
+            Format: wave_format(0xfffe, 8, 48_000, 32, 22),
+            Samples: ::windows::Win32::Media::Audio::WAVEFORMATEXTENSIBLE_0 {
+                wValidBitsPerSample: 24,
+            },
+            dwChannelMask: 0x63f,
+            SubFormat: GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71),
+        };
+        let source_bytes = unsafe {
+            std::slice::from_raw_parts(
+                (&raw const source).cast::<u8>(),
+                std::mem::size_of::<WAVEFORMATEXTENSIBLE>(),
+            )
+        };
+
+        let candidate =
+            unsafe { OwnedWaveFormat::copy_with_sample_rate((&raw const source.Format), 96_000) }
+                .unwrap();
+        let header = unsafe { candidate.as_ptr().read_unaligned() };
+        let sample_rate = header.nSamplesPerSec;
+        let byte_rate = header.nAvgBytesPerSec;
+        let candidate_bytes = unsafe {
+            std::slice::from_raw_parts(candidate.as_ptr().cast::<u8>(), source_bytes.len())
+        };
+
+        assert_eq!(sample_rate, 96_000);
+        assert_eq!(byte_rate, 3_072_000);
+        assert_eq!(
+            &candidate_bytes[std::mem::size_of::<WAVEFORMATEX>()..],
+            &source_bytes[std::mem::size_of::<WAVEFORMATEX>()..]
+        );
+    }
+
+    #[test]
+    fn candidate_rejects_byte_rate_overflow() {
+        let source = WAVEFORMATEX {
+            nBlockAlign: u16::MAX,
+            ..wave_format(3, 2, 48_000, 32, 0)
+        };
+
+        assert!(
+            unsafe { OwnedWaveFormat::copy_with_sample_rate(&raw const source, 96_000) }.is_err()
+        );
     }
 
     #[test]

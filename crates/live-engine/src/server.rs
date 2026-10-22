@@ -219,6 +219,8 @@ fn map_wasapi(capabilities: live_audio::discovery::WasapiCapabilities) -> Wasapi
         default_period_100ns: capabilities.default_period_100ns,
         minimum_period_100ns: capabilities.minimum_period_100ns,
         exclusive_shared_mix_supported: capabilities.exclusive_shared_mix_supported,
+        exclusive_shared_format_sample_rates_hz: capabilities
+            .exclusive_shared_format_sample_rates_hz,
     }
 }
 

@@ -2,6 +2,8 @@
 
 mod windows;
 
+const OFFICIAL_SAMPLE_RATES_HZ: [u32; 3] = [44_100, 48_000, 96_000];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Input,
@@ -41,6 +43,7 @@ pub struct WasapiCapabilities {
     pub default_period_100ns: u64,
     pub minimum_period_100ns: u64,
     pub exclusive_shared_mix_supported: bool,
+    pub exclusive_shared_format_sample_rates_hz: Vec<u32>,
 }
 
 #[derive(Debug, Default)]
@@ -109,10 +112,20 @@ fn wasapi_capabilities(
     channels: u16,
     sample_rate_hz: u32,
     bits_per_sample: u16,
-    default_period_100ns: i64,
-    minimum_period_100ns: i64,
+    periods_100ns: (i64, i64),
     exclusive_shared_mix_supported: bool,
+    exclusive_shared_format_sample_rates_hz: Vec<u32>,
 ) -> Result<WasapiCapabilities, &'static str> {
+    let (default_period_100ns, minimum_period_100ns) = periods_100ns;
+    let rates_are_ordered_and_official = exclusive_shared_format_sample_rates_hz
+        .iter()
+        .all(|rate| OFFICIAL_SAMPLE_RATES_HZ.contains(rate))
+        && exclusive_shared_format_sample_rates_hz
+            .windows(2)
+            .all(|rates| rates[0] < rates[1]);
+    let exact_result_is_consistent = !OFFICIAL_SAMPLE_RATES_HZ.contains(&sample_rate_hz)
+        || exclusive_shared_format_sample_rates_hz.contains(&sample_rate_hz)
+            == exclusive_shared_mix_supported;
     if endpoint_id.is_empty()
         || channels == 0
         || sample_rate_hz == 0
@@ -120,6 +133,8 @@ fn wasapi_capabilities(
         || default_period_100ns < 0
         || minimum_period_100ns < 0
         || minimum_period_100ns > default_period_100ns
+        || !rates_are_ordered_and_official
+        || !exact_result_is_consistent
     {
         return Err("WASAPI returned invalid capabilities");
     }
@@ -131,6 +146,7 @@ fn wasapi_capabilities(
         default_period_100ns: default_period_100ns as u64,
         minimum_period_100ns: minimum_period_100ns as u64,
         exclusive_shared_mix_supported,
+        exclusive_shared_format_sample_rates_hz,
     })
 }
 
@@ -225,7 +241,16 @@ mod tests {
     #[test]
     fn wasapi_capabilities_require_a_real_format_and_nonnegative_periods() {
         assert_eq!(
-            wasapi_capabilities("endpoint-1".into(), 8, 48_000, 32, 100_000, 30_000, true).unwrap(),
+            wasapi_capabilities(
+                "endpoint-1".into(),
+                8,
+                48_000,
+                32,
+                (100_000, 30_000),
+                true,
+                vec![44_100, 48_000],
+            )
+            .unwrap(),
             WasapiCapabilities {
                 endpoint_id: "endpoint-1".into(),
                 channels: 8,
@@ -234,16 +259,46 @@ mod tests {
                 default_period_100ns: 100_000,
                 minimum_period_100ns: 30_000,
                 exclusive_shared_mix_supported: true,
+                exclusive_shared_format_sample_rates_hz: vec![44_100, 48_000],
             }
         );
 
         for malformed in [
-            wasapi_capabilities("id".into(), 0, 48_000, 32, 1, 1, false),
-            wasapi_capabilities("id".into(), 2, 0, 32, 1, 1, false),
-            wasapi_capabilities("id".into(), 2, 48_000, 0, 1, 1, false),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, -1, 1, false),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, -1, false),
-            wasapi_capabilities("id".into(), 2, 48_000, 32, 1, 2, false),
+            wasapi_capabilities("id".into(), 0, 48_000, 32, (1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 0, 32, (1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 0, (1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, (-1, 1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, -1), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, 2), false, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, 1), true, vec![]),
+            wasapi_capabilities("id".into(), 2, 48_000, 32, (1, 1), false, vec![48_000]),
+            wasapi_capabilities(
+                "id".into(),
+                2,
+                48_000,
+                32,
+                (1, 1),
+                true,
+                vec![48_000, 44_100],
+            ),
+            wasapi_capabilities(
+                "id".into(),
+                2,
+                48_000,
+                32,
+                (1, 1),
+                true,
+                vec![44_100, 44_100, 48_000],
+            ),
+            wasapi_capabilities(
+                "id".into(),
+                2,
+                48_000,
+                32,
+                (1, 1),
+                true,
+                vec![22_050, 48_000],
+            ),
         ] {
             assert!(malformed.is_err());
         }
