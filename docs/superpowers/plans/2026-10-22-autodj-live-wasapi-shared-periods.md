@@ -98,7 +98,7 @@ Add the nullable TypeScript field and pure label calculation. Update contributor
 
 Probe the connected active Rane endpoint without opening a stream. Run Rust formatting/clippy/tests, UI tests/check/lint/build, six workspace policy tests, architecture traceability, and `git diff --check`.
 
-- [ ] **Step 5: Review, commit, push, and prove synchronization**
+- [x] **Step 5: Review, commit, push, and prove synchronization**
 
 Obtain one fresh whole-change review; fix Critical/Important findings test-first and defer Minor findings. Commit as `feat: show WASAPI shared engine periods`, push the feature branch, and require local/remote divergence `0 0`. Preserve the branch without merging or opening a pull request.
 
